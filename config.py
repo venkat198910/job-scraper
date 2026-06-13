@@ -3,12 +3,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _clean_env(name: str) -> str | None:
+    value = os.environ.get(name)
+    return value.strip() if value else None
+
 # =================================================================
 # 1. CORE SYSTEM CONFIGURATION
 # =================================================================
 
-SUPABASE_URL: str = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_URL: str = _clean_env("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY: str = _clean_env("SUPABASE_SERVICE_ROLE_KEY")
 
 SUPABASE_TABLE_NAME: str = "jobs"
 SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME = "customized_resumes"
@@ -24,16 +29,16 @@ BASE_RESUME_PATH = "resume.json"
 #
 # Keep these separate. Fallback models use different providers, so a Gemini key
 # must never be passed to OpenAI/Groq and vice versa.
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_FIRST_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GEMINI_API_KEY = _clean_env("GEMINI_API_KEY") or _clean_env("GEMINI_FIRST_API_KEY")
+OPENAI_API_KEY = _clean_env("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = _clean_env("ANTHROPIC_API_KEY")
+GROQ_API_KEY = _clean_env("GROQ_API_KEY")
 
 # Optional legacy/generic key. Existing scripts still use this as an "any LLM
 # key exists" check. llm_client only uses it for the matching primary provider,
 # never for unrelated fallback providers.
 LLM_API_KEY = (
-    os.environ.get("LLM_API_KEY")
+    _clean_env("LLM_API_KEY")
     or GEMINI_API_KEY
     or OPENAI_API_KEY
     or ANTHROPIC_API_KEY

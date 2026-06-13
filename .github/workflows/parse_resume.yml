@@ -47,7 +47,7 @@ jobs:
           ]
           errors = []
           for name, prefix, provider in checks:
-              value = os.environ.get(name)
+              value = (os.environ.get(name) or "").strip()
               if value and not value.startswith(prefix):
                   errors.append(f"{name} is set but does not look like a {provider} key.")
 

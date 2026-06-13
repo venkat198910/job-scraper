@@ -74,7 +74,8 @@ def _configured_key_for_provider(provider: str) -> Optional[str]:
         "anthropic": getattr(config, "ANTHROPIC_API_KEY", None),
         "groq": getattr(config, "GROQ_API_KEY", None),
     }
-    return config_key_map.get(provider) or os.environ.get(PROVIDER_ENV_VARS.get(provider, ""))
+    key = config_key_map.get(provider) or os.environ.get(PROVIDER_ENV_VARS.get(provider, ""))
+    return key.strip() if key else None
 
 
 def _looks_like_key_for_provider(provider: str, api_key: Optional[str]) -> bool:
@@ -82,6 +83,7 @@ def _looks_like_key_for_provider(provider: str, api_key: Optional[str]) -> bool:
     if not api_key:
         return False
 
+    api_key = api_key.strip()
     provider = "gemini" if provider == "google" else provider
     if provider == "gemini":
         return api_key.startswith("AIza")
@@ -172,7 +174,7 @@ class LLMClient:
 
         # Set primary provider API key in environment if provided (LiteLLM reads from env).
         if api_key:
-            self._set_api_key_env(api_key)
+            self._set_api_key_env(api_key.strip())
 
     def _set_api_key_env(self, api_key: str):
         """Set the appropriate environment variable based on the model provider."""
@@ -190,6 +192,7 @@ class LLMClient:
         if not key and model == self.model and self.api_key:
             key = self.api_key
 
+        key = key.strip() if key else None
         if not _looks_like_key_for_provider(provider, key):
             return None
         return key
