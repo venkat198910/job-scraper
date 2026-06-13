@@ -58,12 +58,14 @@ This project is designed to run primarily through GitHub Actions. Follow these s
     - In your forked GitHub repository, go to "Settings".
     - In the left sidebar, navigate to "Secrets and variables" under the "Security" section, and then click on "Actions".
     - **Add Repository Secrets** (Click "New repository secret"):
-      - `LLM_API_KEY`: Your primary LLM API key (e.g., for Gemini or Groq). Also accepts legacy `GEMINI_FIRST_API_KEY`.
-      - `OPENAI_API_KEY`: (Optional) Your OpenAI API key if using GPT models.
-      - `ANTHROPIC_API_KEY`: (Optional) Your Anthropic API key if using Claude models.
-      - `GROQ_API_KEY`: (Optional) Your Groq API key if using Groq models.
+      - `GEMINI_API_KEY`: Your Google AI Studio / Gemini key. This key starts with `AIza`.
+      - `OPENAI_API_KEY`: Your OpenAI key if using GPT fallback models. This key starts with `sk-` or `sk-proj-`.
+      - `ANTHROPIC_API_KEY`: Your Anthropic Claude key if using Anthropic fallback models. This key starts with `sk-ant-`.
+      - `GROQ_API_KEY`: Your Groq key if using Groq fallback models. This key starts with `gsk_`.
       - `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase project's `service_role` key.
       - `SUPABASE_URL`: Your Supabase project's URL.
+
+    - Do not paste a Gemini key into `OPENAI_API_KEY`, an Anthropic key into `GROQ_API_KEY`, or any provider key into the wrong secret name. The GitHub workflows validate these prefixes before running the scripts.
 
     - > **Note:** Other non-sensitive variables like `LLM_MODEL`, `LLM_MAX_RPM`, and `JOBS_TO_SCORE_PER_RUN` are now hardcoded in `config.py` as safe defaults. You only need to set them as GitHub Variables if you want to override the `config.py` defaults (though this is no longer the recommended approach).
 
@@ -170,7 +172,10 @@ The individual Python scripts can still be run locally for development or testin
 
       ```env
       # Essential Keys
-      LLM_API_KEY="YOUR_LLM_API_KEY"
+      GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+      OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+      ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
+      GROQ_API_KEY="YOUR_GROQ_API_KEY"
       SUPABASE_URL="YOUR_SUPABASE_URL"
       SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
 

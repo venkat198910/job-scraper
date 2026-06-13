@@ -20,18 +20,25 @@ SUPABASE_BASE_RESUME_TABLE_NAME = "base_resume"
 
 BASE_RESUME_PATH = "resume.json"
 
-# API Keys
-# Priority order: LLM_API_KEY → GEMINI_API_KEY → OPENAI_API_KEY → GROQ_API_KEY
-LLM_API_KEY = (
-    os.environ.get("GEMINI_API_KEY")
-    or os.environ.get("OPENAI_API_KEY")
-    or os.environ.get("GROQ_API_KEY")
-)
-
-# Provider-specific API keys (for direct provider access if needed)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Provider-specific API keys.
+#
+# Keep these separate. Fallback models use different providers, so a Gemini key
+# must never be passed to OpenAI/Groq and vice versa.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_FIRST_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+# Optional legacy/generic key. Existing scripts still use this as an "any LLM
+# key exists" check. llm_client only uses it for the matching primary provider,
+# never for unrelated fallback providers.
+LLM_API_KEY = (
+    os.environ.get("LLM_API_KEY")
+    or GEMINI_API_KEY
+    or OPENAI_API_KEY
+    or ANTHROPIC_API_KEY
+    or GROQ_API_KEY
+)
 
 # =================================================================
 # 2. USER PREFERENCES
@@ -54,6 +61,7 @@ LLM_MODEL = "gemini/gemini-2.5-flash-lite"
 # Priority: Gemini (primary) → OpenAI → Groq
 LLM_FALLBACK_MODELS = [
     "gpt-4o-mini",  # OpenAI fallback
+    "anthropic/claude-3-haiku-20240307",  # Anthropic fallback
     "groq/llama-3.3-70b-versatile",  # Groq secondary fallback
 ]
 

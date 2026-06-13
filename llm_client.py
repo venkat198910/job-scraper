@@ -40,6 +40,60 @@ if os.environ.get("LLM_DEBUG", "").lower() == "true":
     litellm.set_verbose = True
 
 
+PROVIDER_ENV_VARS = {
+    "gemini": "GEMINI_API_KEY",
+    "google": "GEMINI_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _provider_for_model(model: str) -> str:
+    """Return a normalized provider name from a LiteLLM model string."""
+    if "/" in model:
+        provider = model.split("/", 1)[0].lower()
+    elif model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
+        provider = "openai"
+    elif model.startswith("gemini"):
+        provider = "gemini"
+    else:
+        provider = model.lower()
+
+    return "gemini" if provider == "google" else provider
+
+
+def _configured_key_for_provider(provider: str) -> Optional[str]:
+    provider = "gemini" if provider == "google" else provider
+    config_key_map = {
+        "gemini": getattr(config, "GEMINI_API_KEY", None),
+        "openai": getattr(config, "OPENAI_API_KEY", None),
+        "anthropic": getattr(config, "ANTHROPIC_API_KEY", None),
+        "groq": getattr(config, "GROQ_API_KEY", None),
+    }
+    return config_key_map.get(provider) or os.environ.get(PROVIDER_ENV_VARS.get(provider, ""))
+
+
+def _looks_like_key_for_provider(provider: str, api_key: Optional[str]) -> bool:
+    """Reject obvious provider/key mismatches before LiteLLM makes a slow failing call."""
+    if not api_key:
+        return False
+
+    provider = "gemini" if provider == "google" else provider
+    if provider == "gemini":
+        return api_key.startswith("AIza")
+    if provider == "openai":
+        return api_key.startswith("sk-")
+    if provider == "anthropic":
+        return api_key.startswith("sk-ant-")
+    if provider == "groq":
+        return api_key.startswith("gsk_")
+    return True
+
+
 class RateLimiter:
     """Token-bucket rate limiter for requests per minute."""
 
@@ -116,27 +170,29 @@ class LLMClient:
         self._daily_count = 0
         self._daily_reset_time = time.time()
 
-        # Set API key in environment if provided (LiteLLM reads from env)
+        # Set primary provider API key in environment if provided (LiteLLM reads from env).
         if api_key:
             self._set_api_key_env(api_key)
 
     def _set_api_key_env(self, api_key: str):
         """Set the appropriate environment variable based on the model provider."""
-        provider = self.model.split("/")[0] if "/" in self.model else self.model.lower()
-        if provider == "google":
-            provider = "gemini"
-        env_var_map = {
-            "gemini": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "groq": "GROQ_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "mistral": "MISTRAL_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-        env_var = env_var_map.get(provider)
-        if env_var and not os.environ.get(env_var):
+        provider = _provider_for_model(self.model)
+        env_var = PROVIDER_ENV_VARS.get(provider)
+        if env_var and _looks_like_key_for_provider(provider, api_key) and not os.environ.get(env_var):
             os.environ[env_var] = api_key
+
+    def _api_key_for_model(self, model: str) -> Optional[str]:
+        """Return a validated API key for the model's provider, if configured."""
+        provider = _provider_for_model(model)
+        key = _configured_key_for_provider(provider)
+
+        # Use the optional generic key only for the primary model's provider.
+        if not key and model == self.model and self.api_key:
+            key = self.api_key
+
+        if not _looks_like_key_for_provider(provider, key):
+            return None
+        return key
 
     def _check_daily_budget(self):
         """Check if daily request budget is exceeded. Resets at midnight."""
@@ -203,16 +259,33 @@ class LLMClient:
             "temperature": temperature,
         }
 
-        # Add API key if set
-        if self.api_key:
-            base_kwargs["api_key"] = self.api_key
-
         # Add structured output (Pydantic model)
         if response_format is not None:
             base_kwargs["response_format"] = response_format
 
         # Get model pool (primary + fallbacks)
-        model_pool = [model_override] if model_override else self._get_model_pool()
+        requested_pool = [model_override] if model_override else self._get_model_pool()
+        model_pool = []
+        skipped_models = []
+        for model in requested_pool:
+            if self._api_key_for_model(model):
+                model_pool.append(model)
+            else:
+                skipped_models.append(model)
+
+        if skipped_models:
+            logger.warning(
+                "Skipping LLM model(s) with missing or invalid provider API key: %s",
+                ", ".join(skipped_models),
+            )
+
+        if not model_pool:
+            raise RuntimeError(
+                "No LLM models have a valid provider API key. Configure GEMINI_API_KEY, "
+                "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY for the models in "
+                "LLM_MODEL/LLM_FALLBACK_MODELS."
+            )
+
         pool_index = 0
         
         # Calculate max attempts to cover all models in pool with retries
@@ -233,6 +306,7 @@ class LLMClient:
                 current_model = model_pool[pool_index % len(model_pool)]
                 kwargs = base_kwargs.copy()
                 kwargs["model"] = current_model
+                kwargs["api_key"] = self._api_key_for_model(current_model)
 
                 logger.debug(f"LLM request attempt {attempt + 1}/{max_attempts} to {current_model}")
                 response = litellm.completion(**kwargs)

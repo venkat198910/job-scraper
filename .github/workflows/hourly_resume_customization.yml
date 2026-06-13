@@ -27,6 +27,43 @@ jobs:
             echo "requirements.txt not found. If your script has dependencies, please create this file."
           fi
 
+      - name: Validate LLM secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+
+          checks = [
+              ("GEMINI_API_KEY", "AIza", "Gemini"),
+              ("OPENAI_API_KEY", "sk-", "OpenAI"),
+              ("ANTHROPIC_API_KEY", "sk-ant-", "Anthropic"),
+              ("GROQ_API_KEY", "gsk_", "Groq"),
+          ]
+          errors = []
+          for name, prefix, provider in checks:
+              value = os.environ.get(name)
+              if value and not value.startswith(prefix):
+                  errors.append(f"{name} is set but does not look like a {provider} key.")
+
+          if errors:
+              print("Invalid LLM secret configuration:")
+              for error in errors:
+                  print(f"- {error}")
+              print("Fix the repository secret value under Settings > Secrets and variables > Actions.")
+              sys.exit(1)
+
+          if not any(os.environ.get(name) for name, _, _ in checks):
+              print("At least one LLM provider secret is required: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY.")
+              sys.exit(1)
+
+          print("LLM secret names and key formats look valid.")
+          PY
+
       - name: Run resume customization script
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -34,5 +71,6 @@ jobs:
           # LLM Configuration (set via Repository Variables / Secrets)
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python custom_resume_generator.py
