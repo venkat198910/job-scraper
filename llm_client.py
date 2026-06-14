@@ -335,8 +335,28 @@ class LLMClient:
                     "429", "rate_limit", "rate limit", "resource_exhausted",
                     "quota", "too many requests", "retry"
                 ])
+                is_auth_error = any(keyword in error_str for keyword in [
+                    "authenticationerror", "incorrect api key", "invalid api key",
+                    "invalid_api_key", "unauthorized", "permission denied"
+                ])
+                is_billing_error = any(keyword in error_str for keyword in [
+                    "credit balance is too low", "billing", "insufficient_quota",
+                    "exceeded your current quota"
+                ])
 
                 current_model = model_pool[pool_index % len(model_pool)]
+
+                if is_auth_error or is_billing_error:
+                    reason = "authentication" if is_auth_error else "billing/quota"
+                    logger.warning(
+                        f"Disabling {current_model} for this request due to {reason} error. Error: {e}"
+                    )
+                    model_pool.pop(pool_index % len(model_pool))
+                    if not model_pool:
+                        logger.error(f"No fallback LLM models remain after {reason} failures.")
+                        raise
+                    pool_index = pool_index % len(model_pool)
+                    continue
 
                 if attempt < max_attempts - 1:
                     if is_rate_limit:
