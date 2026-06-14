@@ -19,6 +19,23 @@ MAX_PAGES = 2
 
 DENSITY_PROFILES = [
     {
+        "name": "balanced",
+        "margin": 0.5,
+        "name_size": 22,
+        "normal_size": 9.4,
+        "normal_leading": 11.6,
+        "section_size": 10.8,
+        "bullet_size": 9.1,
+        "bullet_leading": 11.0,
+        "exp_items": 6,
+        "exp_bullets": 4,
+        "project_items": 3,
+        "project_bullets": 2,
+        "skills": 24,
+        "summary_chars": 700,
+        "bullet_chars": 240,
+    },
+    {
         "name": "compact",
         "margin": 0.42,
         "name_size": 20,

@@ -136,7 +136,7 @@ async def personalize_section_with_llm(
         - **CRITICAL: The core professional identity and experience level (e.g., "IT Support and Cybersecurity Specialist with 4+ years") from the "Original Content of This Section" MUST be preserved.** Do NOT change the candidate's stated primary role or invent a new one like "Frontend Engineer" if it wasn't their original title. The goal is to make their *existing* role and experience sound relevant, not to misrepresent their primary job function.
         - Highlight 2-3 key qualifications or experiences from the "Full Resume Context" or "Original Content of This Section" that ALIGN with the "Job Description." These highlighted aspects should be FACTUALLY based on the provided resume materials.
         - Use strong action verbs and keywords from the "Job Description" where appropriate, but ONLY when describing actual experiences or skills present in the resume.
-        - Keep the summary to 45-60 words maximum so the generated resume stays within two pages.
+        - Keep the summary to 55-75 words maximum so the generated resume stays detailed but within two pages.
         - **ABSOLUTELY DO NOT INVENT new information, skills, projects, job titles, or responsibilities not explicitly found in the original resume materials.** Rephrasing and emphasizing existing facts is allowed; fabrication is not.
         - For example, if the original summary says "IT Support Specialist who developed a tool using React," do NOT change this to "Experienced Frontend Engineer." Instead, you might say "IT Support Specialist with experience developing user-facing tools using React, such as Click4IT..."
         ---
@@ -157,7 +157,7 @@ async def personalize_section_with_llm(
             - Enhance the 'description' field ONLY. All other fields (job_title, company, dates, etc.) MUST remain UNCHANGED within this specific experience item.
             - Integrate relevant skills from the "Full Resume Context" (especially any explicit skills list) and keywords from the "Target Job Description" naturally into the description.
             - Show HOW these skills were applied and what the IMPACT or achievement was. Quantify achievements if possible, based on the original content.
-            - Format the description as 2-3 concise resume bullets separated by newline characters. Each bullet must be 16-24 words maximum.
+            - Format the description as 3-4 concise resume bullets separated by newline characters. Each bullet must be 18-26 words maximum.
             - Example: Instead of "Used Python for scripting," try "Automated data processing tasks using Python scripts, reducing manual effort by 20%."
             - Do NOT invent skills or experiences. Stick to the candidate's actual background as reflected in the provided materials.
             ---
@@ -177,7 +177,7 @@ async def personalize_section_with_llm(
             - Enhance the 'description' field ONLY. All other fields (name, technologies, link, etc.) MUST remain UNCHANGED within this specific project item.
             - Integrate relevant skills from the "Full Resume Context" and keywords from the "Target Job Description" naturally into the description.
             - Show HOW these skills were applied.
-            - Format the description as 1-2 concise resume bullets separated by newline characters. Each bullet must be 16-24 words maximum.
+            - Format the description as 2 concise resume bullets separated by newline characters. Each bullet must be 18-26 words maximum.
             - Example: Instead of "Project using React," try "Developed a responsive UI for [Project Purpose] using React and Redux, improving user engagement."
             - Do NOT invent skills or experiences.
             ---
