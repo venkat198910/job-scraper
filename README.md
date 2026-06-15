@@ -126,7 +126,7 @@ Once the setup is complete and GitHub Actions are enabled, the workflows defined
 
 - **`scrape_jobs.yml`**: Periodically scrapes new job postings from LinkedIn and CareersFuture based on your `config.py` settings and saves them to your Supabase database.
 - **`score_jobs.yml`**: Periodically scores the newly scraped jobs and jobs with custom resumes against your parsed resume / custom resume and updates the scores in the database.
-- **`job_manager.yml`**: Periodically manages job statuses (e.g., marks old jobs as expired, checks if active jobs are still available).
+- **`job_manager.yml`**: Periodically manages job statuses (e.g., moves active jobs older than 7 days to Expired Jobs, checks if active jobs are still available).
 - **`hourly_resume_customization.yml`**: (If enabled and configured) May run tasks related to customizing resumes for specific jobs.
 
 You can monitor the execution of these actions in the "Actions" tab of your repository.

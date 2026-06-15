@@ -189,7 +189,8 @@ MAX_RETRIES = 3
 
 RETRY_DELAY_SECONDS = 15
 
-JOB_EXPIRY_DAYS = 30
+# Move active jobs to Expired Jobs once they are older than one week.
+JOB_EXPIRY_DAYS = 7
 
 JOB_CHECK_DAYS = 3
 

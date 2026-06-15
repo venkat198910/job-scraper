@@ -103,19 +103,28 @@ async def mark_expired_jobs():
     expiry_date = get_past_date(config.JOB_EXPIRY_DAYS)
     # Format for Supabase timestampz query
     expiry_date_str = expiry_date.isoformat()
-    excluded_statuses = ['applied', 'offer', 'interviewing'] # Add any status that means "don't expire"
+    excluded_statuses = {'applied', 'offer', 'offered', 'interviewing'} # Statuses that mean "don't expire"
+    logging.info(f"Expiring active jobs scraped before {expiry_date_str} ({config.JOB_EXPIRY_DAYS} day threshold).")
 
     try:
-        # Select jobs to expire
+        # Select old active jobs first, then apply the status exclusion in Python.
+        # PostgREST/SQL NOT IN filters can skip NULL statuses, but NULL/new jobs
+        # should still be eligible to expire.
         response = supabase.table(config.SUPABASE_TABLE_NAME)\
-            .select("job_id")\
+            .select("job_id, status")\
             .lt("scraped_at", expiry_date_str)\
-            .not_.in_("status", excluded_statuses)\
             .eq("is_active", True)\
             .execute()
 
         if response.data:
-            job_ids_to_expire = [job['job_id'] for job in response.data]
+            job_ids_to_expire = [
+                job['job_id']
+                for job in response.data
+                if (job.get('status') or '').lower() not in excluded_statuses
+            ]
+            skipped_count = len(response.data) - len(job_ids_to_expire)
+            if skipped_count:
+                logging.info(f"Skipped {skipped_count} old active jobs with protected statuses: {sorted(excluded_statuses)}.")
             logging.info(f"Found {len(job_ids_to_expire)} jobs older than {config.JOB_EXPIRY_DAYS} days to mark as expired.")
 
             if job_ids_to_expire:
@@ -157,12 +166,11 @@ async def check_linkedin_job_activity():
         # Query for jobs needing a check: active AND older than N days
         # Order by last_checked ASC to prioritize oldest checks
         # Limit the number of checks per run
-        excluded_statuses = ['applied', 'offer', 'interviewing'] # Add any status that means "don't expire"
+        excluded_statuses = {'applied', 'offer', 'offered', 'interviewing'} # Statuses that mean "don't expire"
         query = supabase.table(config.SUPABASE_TABLE_NAME)\
-            .select("job_id, last_checked")\
+            .select("job_id, last_checked, status")\
             .eq("is_active", True)\
             .eq("provider", "linkedin")\
-            .not_.in_("status", excluded_statuses)\
             .lt("last_checked", check_older_than_date_str)\
             .order("last_checked", desc=False)\
             .limit(config.JOB_CHECK_LIMIT)
@@ -170,7 +178,10 @@ async def check_linkedin_job_activity():
         response = query.execute()
 
         if response.data:
-            jobs_to_check = response.data
+            jobs_to_check = [
+                job for job in response.data
+                if (job.get('status') or '').lower() not in excluded_statuses
+            ]
             logging.info(f"Found {len(jobs_to_check)} active jobs to check (limit: {config.JOB_CHECK_LIMIT}).")
         else:
             logging.info("No active jobs need checking currently.")
