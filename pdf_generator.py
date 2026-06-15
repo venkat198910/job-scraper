@@ -9,34 +9,19 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.platypus import HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from models import Resume
 
 logging.basicConfig(level=logging.INFO)
 
 MAX_PAGES = 2
+CANVAS_MAX_BULLETS_PER_EXPERIENCE = 6
 
 DENSITY_PROFILES = [
     {
         "name": "two_page",
-        "margin": 0.42,
-        "name_size": 20,
-        "normal_size": 8.8,
-        "normal_leading": 10.4,
-        "section_size": 10,
-        "bullet_size": 8.6,
-        "bullet_leading": 10.1,
-        "exp_items": 5,
-        "exp_bullets": 3,
-        "project_items": 2,
-        "project_bullets": 2,
-        "skills": 18,
-        "summary_chars": 520,
-        "bullet_chars": 190,
-    },
-    {
-        "name": "dense",
         "margin": 0.36,
         "name_size": 18,
         "normal_size": 8.2,
@@ -44,13 +29,14 @@ DENSITY_PROFILES = [
         "section_size": 9.3,
         "bullet_size": 8.0,
         "bullet_leading": 9.3,
-        "exp_items": 4,
+        "exp_items": 7,
         "exp_bullets": 2,
         "project_items": 1,
         "project_bullets": 1,
         "skills": 14,
         "summary_chars": 420,
         "bullet_chars": 165,
+        "page_break_after_exp_items": 2,
     },
     {
         "name": "minimal",
@@ -61,13 +47,14 @@ DENSITY_PROFILES = [
         "section_size": 8.8,
         "bullet_size": 7.6,
         "bullet_leading": 8.8,
-        "exp_items": 4,
+        "exp_items": 7,
         "exp_bullets": 2,
         "project_items": 1,
         "project_bullets": 1,
         "skills": 12,
         "summary_chars": 360,
         "bullet_chars": 145,
+        "page_break_after_exp_items": 2,
     },
     {
         "name": "fit_two_pages",
@@ -78,7 +65,7 @@ DENSITY_PROFILES = [
         "section_size": 8.3,
         "bullet_size": 7.2,
         "bullet_leading": 8.2,
-        "exp_items": 3,
+        "exp_items": 7,
         "exp_bullets": 1,
         "project_items": 0,
         "project_bullets": 0,
@@ -89,6 +76,7 @@ DENSITY_PROFILES = [
         "certification_items": 0,
         "language_items": 0,
         "tech_items": 0,
+        "page_break_after_exp_items": 2,
     },
     {
         "name": "last_resort_fit",
@@ -99,7 +87,7 @@ DENSITY_PROFILES = [
         "section_size": 7.8,
         "bullet_size": 6.8,
         "bullet_leading": 7.6,
-        "exp_items": 2,
+        "exp_items": 7,
         "exp_bullets": 1,
         "project_items": 0,
         "project_bullets": 0,
@@ -110,6 +98,7 @@ DENSITY_PROFILES = [
         "certification_items": 0,
         "language_items": 0,
         "tech_items": 0,
+        "page_break_after_exp_items": 2,
     },
 ]
 
@@ -136,6 +125,13 @@ def _clip(text: str, max_chars: int) -> str:
     return f"{clipped}."
 
 
+def _normalize_bullet_key(text: str) -> str:
+    text = _clean_text(text).lower()
+    text = re.sub(r"^[\-*\u2022]+\s*", "", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _split_bullets(text: str, max_items: int, max_chars: int) -> list[str]:
     text = (text or "").replace("\r", "\n").strip()
     if not text or text == "NA":
@@ -143,21 +139,247 @@ def _split_bullets(text: str, max_items: int, max_chars: int) -> list[str]:
 
     raw_items = []
     if "\n" in text:
-        raw_items = [line.strip(" -*\u2022\t") for line in text.splitlines()]
+        raw_items = [line.strip(" -*\u2022\u25aa\u25ab\u25e6\t") for line in text.splitlines()]
     else:
         normalized = re.sub(r"\s+", " ", text)
         raw_items = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", normalized)
 
     bullets = []
+    seen = set()
     for item in raw_items:
         cleaned = _clip(item, max_chars)
-        if cleaned:
+        key = _normalize_bullet_key(cleaned)
+        if cleaned and key and key not in seen:
             if not cleaned.endswith((".", "!", "?")):
                 cleaned += "."
             bullets.append(cleaned)
+            seen.add(key)
         if len(bullets) >= max_items:
             break
     return bullets
+
+
+def _wrap_text(text: str, font_name: str, font_size: float, max_width: float) -> list[str]:
+    words = _clean_text(text).split()
+    if not words:
+        return []
+
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _draw_wrapped_text(
+    pdf: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    max_width: float,
+    font_name: str = "Helvetica",
+    font_size: float = 8.0,
+    leading: float = 9.0,
+    max_lines: int | None = None,
+) -> float:
+    pdf.setFont(font_name, font_size)
+    lines = _wrap_text(text, font_name, font_size, max_width)
+    if max_lines is not None:
+        lines = lines[:max_lines]
+    for line in lines:
+        pdf.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def _draw_section(pdf: canvas.Canvas, title: str, x: float, y: float, width: float) -> float:
+    pdf.setFillColor(colors.HexColor("#1D4ED8"))
+    pdf.setFont("Helvetica-Bold", 10.2)
+    pdf.drawString(x, y, title)
+    y -= 2.5
+    pdf.setStrokeColor(colors.HexColor("#9AA4B2"))
+    pdf.setLineWidth(0.45)
+    pdf.line(x, y, x + width, y)
+    pdf.setFillColor(colors.black)
+    return y - 9.5
+
+
+def _draw_experience_item(
+    pdf: canvas.Canvas,
+    exp,
+    x: float,
+    y: float,
+    width: float,
+    bullet_count: int = CANVAS_MAX_BULLETS_PER_EXPERIENCE,
+) -> float:
+    title = _clean_text(exp.job_title)
+    dates = ""
+    if _has_value(exp.start_date) and _has_value(exp.end_date):
+        dates = f"{_clean_text(exp.start_date)} - {_clean_text(exp.end_date)}"
+    elif _has_value(exp.start_date):
+        dates = f"{_clean_text(exp.start_date)} - Present"
+
+    pdf.setFillColor(colors.black)
+    pdf.setFont("Helvetica-Bold", 8.8)
+    pdf.drawString(x, y, title)
+    if dates:
+        pdf.setFont("Helvetica", 7.8)
+        pdf.drawRightString(x + width, y, dates)
+    y -= 9.4
+
+    company_parts = []
+    if _has_value(exp.company):
+        company_parts.append(_clean_text(exp.company))
+    if _has_value(exp.location):
+        company_parts.append(_clean_text(exp.location))
+    if company_parts:
+        pdf.setFont("Helvetica", 7.8)
+        pdf.setFillColor(colors.HexColor("#374151"))
+        pdf.drawString(x, y, " | ".join(company_parts))
+        y -= 8.8
+
+    pdf.setFillColor(colors.black)
+    bullets = _split_bullets(exp.description, bullet_count, 170)
+    for bullet in bullets:
+        wrapped = _wrap_text(bullet, "Helvetica", 7.7, width - 12)
+        if not wrapped:
+            continue
+        pdf.setFont("Helvetica", 7.7)
+        pdf.drawString(x + 4, y, "-")
+        pdf.drawString(x + 12, y, wrapped[0])
+        y -= 8.5
+        for line in wrapped[1:2]:
+            pdf.drawString(x + 12, y, line)
+            y -= 8.5
+    return y - 3.5
+
+
+def _draw_education(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
+    education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
+    if not education:
+        return y
+    y = _draw_section(pdf, "EDUCATION", x, y, width)
+    for edu in education[:2]:
+        degree = _clean_text(edu.degree)
+        if _has_value(edu.field_of_study):
+            degree = f"{degree}, {_clean_text(edu.field_of_study)}" if degree else _clean_text(edu.field_of_study)
+        years = ""
+        if _has_value(edu.start_year) and _has_value(edu.end_year):
+            years = f"{_clean_text(edu.start_year)} - {_clean_text(edu.end_year)}"
+        elif _has_value(edu.end_year):
+            years = _clean_text(edu.end_year)
+        pdf.setFont("Helvetica-Bold", 8.0)
+        pdf.drawString(x, y, degree)
+        if years:
+            pdf.setFont("Helvetica", 7.5)
+            pdf.drawRightString(x + width, y, years)
+        y -= 8.8
+        if _has_value(edu.institution):
+            pdf.setFont("Helvetica", 7.5)
+            pdf.drawString(x, y, _clean_text(edu.institution))
+            y -= 8.8
+    return y - 2
+
+
+def _draw_certifications(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
+    certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
+    if not certifications:
+        return y
+    y = _draw_section(pdf, "CERTIFICATIONS", x, y, width)
+    cert_text = []
+    for cert in certifications[:4]:
+        item = _clean_text(cert.name)
+        if _has_value(cert.issuer):
+            item = f"{item} - {_clean_text(cert.issuer)}" if item else _clean_text(cert.issuer)
+        if _has_value(cert.year):
+            item = f"{item} ({_clean_text(cert.year)})"
+        if item:
+            cert_text.append(item)
+    return _draw_wrapped_text(pdf, "; ".join(cert_text), x, y, width, "Helvetica", 7.7, 8.8, max_lines=2)
+
+
+def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter, pageCompression=0)
+    page_width, page_height = letter
+    margin = 0.46 * inch
+    content_width = page_width - (2 * margin)
+
+    def draw_header(y: float, include_summary: bool = False) -> float:
+        if _has_value(resume_data.name):
+            pdf.setFont("Helvetica-Bold", 20)
+            pdf.drawCentredString(page_width / 2, y, _clean_text(str(resume_data.name)).upper())
+            y -= 12
+
+        contact_parts = [_clean_text(value) for value in [resume_data.email, resume_data.phone, resume_data.location] if _has_value(value)]
+        if contact_parts:
+            pdf.setFont("Helvetica", 8.2)
+            pdf.drawCentredString(page_width / 2, y, " | ".join(contact_parts))
+            y -= 10
+
+        if resume_data.links and _has_value(resume_data.links.linkedin):
+            pdf.setFillColor(colors.HexColor("#1D4ED8"))
+            pdf.setFont("Helvetica", 7.8)
+            pdf.drawCentredString(page_width / 2, y, "LinkedIn")
+            pdf.setFillColor(colors.black)
+            y -= 11
+
+        if include_summary and _has_value(resume_data.summary):
+            y = _draw_section(pdf, "PROFESSIONAL SUMMARY", margin, y, content_width)
+            y = _draw_wrapped_text(
+                pdf,
+                _clip(resume_data.summary, 520),
+                margin,
+                y,
+                content_width,
+                "Helvetica",
+                8.1,
+                9.2,
+                max_lines=4,
+            )
+            y -= 4
+
+        return y
+
+    y = draw_header(page_height - margin, include_summary=True)
+
+    skills = [_clean_text(skill) for skill in (resume_data.skills or []) if _has_value(skill)]
+    if skills:
+        y = _draw_section(pdf, "CORE SKILLS", margin, y, content_width)
+        y = _draw_wrapped_text(pdf, ", ".join(skills[:20]), margin, y, content_width, "Helvetica", 7.9, 9.0, max_lines=3)
+        y -= 4
+
+    experiences = [exp for exp in (resume_data.experience or []) if _has_value(exp.job_title) or _has_value(exp.description)]
+    page_one_experiences = experiences[:5]
+    page_two_experiences = experiences[5:7]
+
+    y = _draw_section(pdf, "PROFESSIONAL EXPERIENCE", margin, y, content_width)
+    for exp in page_one_experiences:
+        y = _draw_experience_item(pdf, exp, margin, y, content_width)
+
+    pdf.showPage()
+
+    y = page_height - margin
+    for exp in page_two_experiences:
+        y = _draw_experience_item(pdf, exp, margin, y, content_width)
+
+    if y > (1.25 * inch):
+        y = _draw_education(pdf, resume_data, margin, y, content_width)
+    if y > (0.9 * inch):
+        _draw_certifications(pdf, resume_data, margin, y, content_width)
+
+    pdf.save()
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
 
 
 def _paragraph(text: str, style: ParagraphStyle) -> Paragraph:
@@ -306,7 +528,9 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
     experiences = [exp for exp in (resume_data.experience or []) if _has_value(exp.job_title) or _has_value(exp.description)]
     if experiences:
         _section(story, "PROFESSIONAL EXPERIENCE", style["section"])
-        for exp in experiences[: profile["exp_items"]]:
+        visible_experiences = experiences[: profile["exp_items"]]
+        break_after = profile.get("page_break_after_exp_items")
+        for index, exp in enumerate(visible_experiences, start=1):
             title = _clean_text(exp.job_title)
             dates = ""
             if _has_value(exp.start_date) and _has_value(exp.end_date):
@@ -342,6 +566,12 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
             for bullet in _split_bullets(exp.description, profile["exp_bullets"], profile["bullet_chars"]):
                 story.append(Paragraph(f"- {escape(bullet)}", style["bullet"]))
             story.append(Spacer(1, 0.035 * inch))
+            if (
+                break_after
+                and index == break_after
+                and len(visible_experiences) > break_after
+            ):
+                story.append(PageBreak())
 
     education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
     projects = [proj for proj in (resume_data.projects or []) if _has_value(proj.name) or _has_value(proj.description)]
@@ -426,8 +656,11 @@ def _build_pdf(resume_data: Resume, profile) -> tuple[bytes, int]:
     page_count = {"value": 1}
 
     class CountingCanvas(canvas.Canvas):
+        def showPage(self):
+            page_count["value"] += 1
+            super().showPage()
+
         def save(self):
-            page_count["value"] = self.getPageNumber()
             super().save()
 
     story = _build_story(resume_data, doc, profile)
@@ -440,9 +673,13 @@ def _build_pdf(resume_data: Resume, profile) -> tuple[bytes, int]:
 def create_resume_pdf(resume_data: Resume) -> bytes:
     """
     Generates a concise ATS-friendly PDF resume from the provided Resume data object.
-    The builder targets a clean two-page output by retrying with denser spacing and
-    tighter section limits when needed.
+    The primary builder emits exactly two pages with a deterministic layout.
     """
+    try:
+        return _build_canvas_two_page_pdf(resume_data)
+    except Exception as exc:
+        logging.error("Error building deterministic two-page PDF: %s", exc)
+
     last_pdf = b""
     last_pages = 0
     best_under_limit_pdf = b""
@@ -453,7 +690,9 @@ def create_resume_pdf(resume_data: Resume) -> bytes:
             pdf_bytes, pages = _build_pdf(resume_data, profile)
             logging.info("PDF generated with %s profile: %s page(s).", profile["name"], pages)
             last_pdf, last_pages = pdf_bytes, pages
-            if pages == MAX_PAGES:
+            if pages == MAX_PAGES or (
+                profile.get("page_break_after_exp_items") and pages == MAX_PAGES + 1
+            ):
                 return pdf_bytes
             if pages < MAX_PAGES and not best_under_limit_pdf:
                 best_under_limit_pdf = pdf_bytes

@@ -47,6 +47,42 @@ def extract_json_from_text(text: str) -> str:
         raise ValueError(f"Failed to extract valid JSON: {e}\nRaw candidate:\n{json_candidate}")
 
 
+def _clean_resume_bullets(text: str) -> str:
+    if not text:
+        return ""
+
+    lines = []
+    seen = set()
+    for raw_line in str(text).replace("\r", "\n").splitlines():
+        line = raw_line.strip(" -*\u2022\u25aa\u25ab\u25e6\t")
+        line = re.sub(r"\s+", " ", line).strip()
+        if not line:
+            continue
+
+        key = re.sub(r"[^a-z0-9\s]", " ", line.lower())
+        key = re.sub(r"\s+", " ", key).strip()
+        if key and key not in seen:
+            seen.add(key)
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def sanitize_resume_content(resume_data: Resume) -> Resume:
+    cleaned = resume_data.model_copy(deep=True)
+
+    for exp in cleaned.experience or []:
+        exp.description = _clean_resume_bullets(exp.description)
+
+    for project in cleaned.projects or []:
+        project.description = _clean_resume_bullets(project.description)
+
+    cleaned.skills = list(
+        dict.fromkeys(skill.strip() for skill in (cleaned.skills or []) if skill and skill.strip())
+    )
+    return cleaned
+
+
 async def personalize_section_with_llm(
     section_name: str,
     section_content: Any,
@@ -157,7 +193,9 @@ async def personalize_section_with_llm(
             - Enhance the 'description' field ONLY. All other fields (job_title, company, dates, etc.) MUST remain UNCHANGED within this specific experience item.
             - Integrate relevant skills from the "Full Resume Context" (especially any explicit skills list) and keywords from the "Target Job Description" naturally into the description.
             - Show HOW these skills were applied and what the IMPACT or achievement was. Quantify achievements if possible, based on the original content.
-            - Format the description as 3-4 concise resume bullets separated by newline characters. Each bullet must be 18-26 words maximum.
+            - Format the description as 4-6 concise resume bullets separated by newline characters when the original experience has enough substance. Each bullet must be 16-24 words maximum.
+            - Do not include bullet symbols like -, •, ▪, or nested bullets; return plain lines only.
+            - Do not repeat the same achievement, metric, sentence, or meaning across bullets.
             - Example: Instead of "Used Python for scripting," try "Automated data processing tasks using Python scripts, reducing manual effort by 20%."
             - Do NOT invent skills or experiences. Stick to the candidate's actual background as reflected in the provided materials.
             ---
@@ -178,6 +216,8 @@ async def personalize_section_with_llm(
             - Integrate relevant skills from the "Full Resume Context" and keywords from the "Target Job Description" naturally into the description.
             - Show HOW these skills were applied.
             - Format the description as 2 concise resume bullets separated by newline characters. Each bullet must be 18-26 words maximum.
+            - Do not include bullet symbols like -, •, ▪, or nested bullets; return plain lines only.
+            - Do not repeat the same achievement, sentence, or meaning across bullets.
             - Example: Instead of "Project using React," try "Developed a responsive UI for [Project Purpose] using React and Redux, improving user engagement."
             - Do NOT invent skills or experiences.
             ---
@@ -409,6 +449,8 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
         if any_validation_failed:
             logging.info(f"--- Aborting PDF generation and further processing for job_id: {job_id} due to validation failure. ---")
             return 
+
+        personalized_resume_data = sanitize_resume_content(personalized_resume_data)
 
         # 2. Generate PDF
         logging.info(f"Generating PDF for job_id: {job_id}")

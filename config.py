@@ -96,11 +96,27 @@ LINKEDIN_SEARCH_QUERIES = [
     "Cloud Native Engineer"
 ]
 
-# Location
-LINKEDIN_LOCATION = "India"
+# Locations
+LINKEDIN_LOCATIONS = [
+    "Dubai, United Arab Emirates",
+    "Abu Dhabi, United Arab Emirates",
+    "Bengaluru, Karnataka, India",
+    "Bangalore, Karnataka, India",
+]
 
-# India GEO ID
-LINKEDIN_GEO_ID = 102713980
+# Backward-compatible default for older scripts.
+LINKEDIN_LOCATION = LINKEDIN_LOCATIONS[0]
+
+# LinkedIn GEO IDs by location.
+LINKEDIN_GEO_IDS = {
+    "Dubai, United Arab Emirates": 106204383,
+    "Abu Dhabi, United Arab Emirates": 103720977,
+    "Bengaluru, Karnataka, India": 105214831,
+    "Bangalore, Karnataka, India": 105214831,
+}
+
+# Backward-compatible default for older scripts.
+LINKEDIN_GEO_ID = LINKEDIN_GEO_IDS[LINKEDIN_LOCATION]
 
 # Job Type
 # F=Full-time
@@ -159,7 +175,7 @@ SCRAPING_SOURCES = [
 
 JOBS_TO_SCORE_PER_RUN = 20
 
-JOBS_TO_CUSTOMIZE_PER_RUN = 10
+JOBS_TO_CUSTOMIZE_PER_RUN = 20
 
 MAX_JOBS_PER_SEARCH = {
     "linkedin": 25,
