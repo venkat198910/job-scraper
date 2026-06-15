@@ -19,24 +19,7 @@ MAX_PAGES = 2
 
 DENSITY_PROFILES = [
     {
-        "name": "balanced",
-        "margin": 0.5,
-        "name_size": 22,
-        "normal_size": 9.4,
-        "normal_leading": 11.6,
-        "section_size": 10.8,
-        "bullet_size": 9.1,
-        "bullet_leading": 11.0,
-        "exp_items": 6,
-        "exp_bullets": 4,
-        "project_items": 3,
-        "project_bullets": 2,
-        "skills": 24,
-        "summary_chars": 700,
-        "bullet_chars": 240,
-    },
-    {
-        "name": "compact",
+        "name": "two_page",
         "margin": 0.42,
         "name_size": 20,
         "normal_size": 8.8,
@@ -68,6 +51,65 @@ DENSITY_PROFILES = [
         "skills": 14,
         "summary_chars": 420,
         "bullet_chars": 165,
+    },
+    {
+        "name": "minimal",
+        "margin": 0.32,
+        "name_size": 17,
+        "normal_size": 7.8,
+        "normal_leading": 9.0,
+        "section_size": 8.8,
+        "bullet_size": 7.6,
+        "bullet_leading": 8.8,
+        "exp_items": 4,
+        "exp_bullets": 2,
+        "project_items": 1,
+        "project_bullets": 1,
+        "skills": 12,
+        "summary_chars": 360,
+        "bullet_chars": 145,
+    },
+    {
+        "name": "fit_two_pages",
+        "margin": 0.28,
+        "name_size": 16,
+        "normal_size": 7.4,
+        "normal_leading": 8.4,
+        "section_size": 8.3,
+        "bullet_size": 7.2,
+        "bullet_leading": 8.2,
+        "exp_items": 3,
+        "exp_bullets": 1,
+        "project_items": 0,
+        "project_bullets": 0,
+        "skills": 10,
+        "summary_chars": 260,
+        "bullet_chars": 125,
+        "education_items": 1,
+        "certification_items": 0,
+        "language_items": 0,
+        "tech_items": 0,
+    },
+    {
+        "name": "last_resort_fit",
+        "margin": 0.24,
+        "name_size": 15,
+        "normal_size": 6.9,
+        "normal_leading": 7.8,
+        "section_size": 7.8,
+        "bullet_size": 6.8,
+        "bullet_leading": 7.6,
+        "exp_items": 2,
+        "exp_bullets": 1,
+        "project_items": 0,
+        "project_bullets": 0,
+        "skills": 8,
+        "summary_chars": 200,
+        "bullet_chars": 95,
+        "education_items": 1,
+        "certification_items": 0,
+        "language_items": 0,
+        "tech_items": 0,
     },
 ]
 
@@ -302,9 +344,13 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
             story.append(Spacer(1, 0.035 * inch))
 
     education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
+    projects = [proj for proj in (resume_data.projects or []) if _has_value(proj.name) or _has_value(proj.description)]
+    certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
+    languages = [_clean_text(lang) for lang in (resume_data.languages or []) if _has_value(lang)]
+
     if education:
         _section(story, "EDUCATION", style["section"])
-        for edu in education[:2]:
+        for edu in education[: profile.get("education_items", 2)]:
             degree = _clean_text(edu.degree)
             if _has_value(edu.field_of_study):
                 degree = f"{degree}, {_clean_text(edu.field_of_study)}" if degree else _clean_text(edu.field_of_study)
@@ -331,7 +377,6 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
             if _has_value(edu.institution):
                 story.append(_paragraph(edu.institution, style["muted"]))
 
-    projects = [proj for proj in (resume_data.projects or []) if _has_value(proj.name) or _has_value(proj.description)]
     if projects:
         _section(story, "PROJECTS", style["section"])
         for proj in projects[: profile["project_items"]]:
@@ -341,13 +386,13 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
                 story.append(Paragraph(f"- {escape(bullet)}", style["bullet"]))
             tech = [_clean_text(item) for item in (proj.technologies or []) if _has_value(item)]
             if tech:
-                story.append(_paragraph(f"Technologies: {', '.join(tech[:8])}", style["muted"]))
+                story.append(_paragraph(f"Technologies: {', '.join(tech[: profile.get('tech_items', 8)])}", style["muted"]))
 
-    certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
-    if certifications:
+    certification_limit = profile.get("certification_items", 4)
+    if certifications and certification_limit > 0:
         _section(story, "CERTIFICATIONS", style["section"])
         cert_text = []
-        for cert in certifications[:4]:
+        for cert in certifications[:certification_limit]:
             item = _clean_text(cert.name)
             if _has_value(cert.issuer):
                 item = f"{item} - {_clean_text(cert.issuer)}" if item else _clean_text(cert.issuer)
@@ -358,10 +403,10 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
         if cert_text:
             story.append(_paragraph("; ".join(cert_text), style["normal"]))
 
-    languages = [_clean_text(lang) for lang in (resume_data.languages or []) if _has_value(lang)]
-    if languages:
+    language_limit = profile.get("language_items", len(languages))
+    if languages and language_limit > 0:
         _section(story, "LANGUAGES", style["section"])
-        story.append(_paragraph(", ".join(languages), style["normal"]))
+        story.append(_paragraph(", ".join(languages[:language_limit]), style["normal"]))
 
     return story
 
@@ -400,17 +445,69 @@ def create_resume_pdf(resume_data: Resume) -> bytes:
     """
     last_pdf = b""
     last_pages = 0
+    best_under_limit_pdf = b""
+    best_under_limit_pages = 0
 
     for profile in DENSITY_PROFILES:
         try:
             pdf_bytes, pages = _build_pdf(resume_data, profile)
             logging.info("PDF generated with %s profile: %s page(s).", profile["name"], pages)
             last_pdf, last_pages = pdf_bytes, pages
-            if pages <= MAX_PAGES:
+            if pages == MAX_PAGES:
                 return pdf_bytes
+            if pages < MAX_PAGES and not best_under_limit_pdf:
+                best_under_limit_pdf = pdf_bytes
+                best_under_limit_pages = pages
         except Exception as exc:
             logging.error("Error building PDF with %s profile: %s", profile["name"], exc)
             raise
 
-    logging.warning("Generated resume is %s pages after densest layout.", last_pages)
-    return last_pdf
+    if best_under_limit_pdf:
+        logging.warning(
+            "Generated resume stayed at %s page(s) after all layouts; returning best under-limit version.",
+            best_under_limit_pages,
+        )
+        return best_under_limit_pdf
+
+    emergency_profile = {
+        **DENSITY_PROFILES[-1],
+        "name": "emergency_fit",
+        "margin": 0.2,
+        "name_size": 13,
+        "normal_size": 6.2,
+        "normal_leading": 6.9,
+        "section_size": 7.0,
+        "bullet_size": 6.1,
+        "bullet_leading": 6.8,
+        "exp_items": 1,
+        "exp_bullets": 0,
+        "project_items": 0,
+        "project_bullets": 0,
+        "skills": 4,
+        "summary_chars": 120,
+        "bullet_chars": 60,
+        "education_items": 0,
+        "certification_items": 0,
+        "language_items": 0,
+        "tech_items": 0,
+    }
+    pdf_bytes, pages = _build_pdf(resume_data, emergency_profile)
+    logging.warning("PDF generated with %s profile: %s page(s).", emergency_profile["name"], pages)
+    if pages <= MAX_PAGES:
+        return pdf_bytes
+
+    contact_only_resume = resume_data.model_copy(deep=True)
+    contact_only_resume.summary = ""
+    contact_only_resume.skills = []
+    contact_only_resume.experience = []
+    contact_only_resume.education = []
+    contact_only_resume.projects = []
+    contact_only_resume.certifications = []
+    contact_only_resume.languages = []
+    pdf_bytes, pages = _build_pdf(contact_only_resume, emergency_profile)
+    logging.error(
+        "Resume content exceeded %s pages even after emergency trimming; returned contact-only fallback with %s page(s).",
+        MAX_PAGES,
+        pages,
+    )
+    return pdf_bytes
