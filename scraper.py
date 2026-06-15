@@ -9,6 +9,7 @@ import user_agents
 import supabase_utils
 from markdownify import markdownify as md
 import json
+import re
 from urllib.parse import urlencode
 
 # --- Setup Logging ---
@@ -61,6 +62,52 @@ def convert_html_to_markdown(html: str) -> str | None:
         logging.error(f"Error during HTML to Markdown conversion: {e}")
         return None
 
+def _get_linkedin_experience_levels_param() -> str | None:
+    """Return LinkedIn f_E filter values as a comma-separated string."""
+    experience_levels = getattr(config, "LINKEDIN_EXPERIENCE_LEVELS", None)
+    if not experience_levels:
+        return None
+
+    return ",".join(str(level).strip() for level in experience_levels if str(level).strip())
+
+def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
+    """Filter jobs to descriptions that clearly request the configured experience range."""
+    min_years = getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", None)
+    max_years = getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", None)
+    require_match = getattr(config, "LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH", False)
+
+    if min_years is None or max_years is None:
+        return True
+
+    description = job_details.get("description") or ""
+    title = job_details.get("job_title") or ""
+    level = job_details.get("level") or ""
+    haystack = f"{title}\n{level}\n{description}".lower()
+    haystack = haystack.replace("–", "-").replace("—", "-")
+
+    ranges = []
+    for match in re.finditer(r"\b(\d{1,2})\s*(?:\+?\s*-\s*|to\s+)(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b", haystack):
+        low = int(match.group(1))
+        high = int(match.group(2))
+        if low > high:
+            low, high = high, low
+        ranges.append((low, high))
+
+    for match in re.finditer(r"\b(?:minimum|min\.?|at least|over|more than)\s+(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b", haystack):
+        years = int(match.group(1))
+        ranges.append((years, years))
+
+    for match in re.finditer(r"\b(\d{1,2})\s*\+\s*(?:years?|yrs?)\b", haystack):
+        years = int(match.group(1))
+        ranges.append((years, years))
+
+    if not ranges:
+        # Avoid false positives from random numbers. When strict mode is enabled,
+        # only keep jobs where the description states the required experience.
+        return not require_match
+
+    return any(min_years <= low <= max_years and high <= max_years for low, high in ranges)
+
 def _get_careers_future_job_company_name(job_item: dict) -> str | None:
     """Helper to extract company name, preferring hiringCompany."""
     if not isinstance(job_item, dict):
@@ -95,6 +142,9 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
             "f_WT": config.LINKEDIN_F_WT,
             "start": start,
         }
+        experience_levels = _get_linkedin_experience_levels_param()
+        if experience_levels:
+            query_params["f_E"] = experience_levels
         geo_id = getattr(config, "LINKEDIN_GEO_IDS", {}).get(location, config.LINKEDIN_GEO_ID)
         if geo_id:
             query_params["geoId"] = geo_id
@@ -405,6 +455,14 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
         if details:
             description = details.get('description')
             if description and description.strip(): 
+                if not _linkedin_job_matches_experience_range(details):
+                    logging.info(
+                        "Skipping job ID %s because requested experience is outside %s-%s years.",
+                        job_id,
+                        getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", "N/A"),
+                        getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", "N/A"),
+                    )
+                    continue
                 if 'job_id' in details and details['job_id'] is not None:
                     detailed_new_jobs.append(details)
                     processed_count += 1

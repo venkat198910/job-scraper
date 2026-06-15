@@ -128,6 +128,15 @@ LINKEDIN_GEO_ID = LINKEDIN_GEO_IDS[LINKEDIN_LOCATION]
 
 LINKEDIN_JOB_TYPE = "F"
 
+# Experience filter
+# LinkedIn f_E values: 2=Entry, 3=Associate, 4=Mid-Senior, 5=Director, 6=Executive
+LINKEDIN_EXPERIENCE_LEVELS = [4]
+
+# Local description filter. Jobs must clearly ask for experience within this range.
+LINKEDIN_MIN_EXPERIENCE_YEARS = 6
+LINKEDIN_MAX_EXPERIENCE_YEARS = 12
+LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH = True
+
 # Date Filter
 # r86400 = Past 24h
 # r604800 = Past week
