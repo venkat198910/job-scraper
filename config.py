@@ -76,6 +76,7 @@ LLM_FALLBACK_MODELS = [
 
 LINKEDIN_SEARCH_QUERIES = [
     "DevOps Engineer",
+    "Senior DevOps Engineer",
     "Cloud Engineer",
     "GCP Engineer",
     "GCP DevOps Engineer",
