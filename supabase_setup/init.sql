@@ -793,6 +793,31 @@ GRANT ALL ON TABLE "public"."base_resume" TO "anon";
 GRANT ALL ON TABLE "public"."base_resume" TO "authenticated";
 GRANT ALL ON TABLE "public"."base_resume" TO "service_role";
 
+-- --- App Settings Table ---
+-- Stores UI-managed scraper and automation preferences.
+CREATE TABLE IF NOT EXISTS "public"."app_settings" (
+    "id" "text" DEFAULT 'default'::"text" NOT NULL,
+    "settings" "jsonb" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "app_settings_singleton" CHECK (("id" = 'default'::"text"))
+);
+
+ALTER TABLE "public"."app_settings" OWNER TO "postgres";
+
+ALTER TABLE ONLY "public"."app_settings"
+    ADD CONSTRAINT "app_settings_pkey" PRIMARY KEY ("id");
+
+CREATE OR REPLACE TRIGGER "update_app_settings_updated_at"
+    BEFORE UPDATE ON "public"."app_settings"
+    FOR EACH ROW EXECUTE FUNCTION "public"."update_base_resume_updated_at_column"();
+
+ALTER TABLE "public"."app_settings" ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE "public"."app_settings" TO "anon";
+GRANT ALL ON TABLE "public"."app_settings" TO "authenticated";
+GRANT ALL ON TABLE "public"."app_settings" TO "service_role";
+
 -- --- Storage Setup ---
 -- Create the resumes storage bucket for uploading the original resume PDF
 INSERT INTO storage.buckets (id, name, public)

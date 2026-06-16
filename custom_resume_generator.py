@@ -9,6 +9,7 @@ import pdf_generator
 import re
 import asyncio 
 from llm_client import primary_client
+from resume_filename import build_custom_resume_filename
 from models import (
     Education, Experience, Project, Certification, Links, Resume,
     SummaryOutput, SkillsOutput, ExperienceListOutput, SingleExperienceOutput,
@@ -16,6 +17,7 @@ from models import (
 )
 import time
 import os
+import app_settings
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -81,6 +83,13 @@ def sanitize_resume_content(resume_data: Resume) -> Resume:
         dict.fromkeys(skill.strip() for skill in (cleaned.skills or []) if skill and skill.strip())
     )
     return cleaned
+
+
+def _resume_score_value(job_details: Dict[str, Any]) -> int:
+    try:
+        return int(float(job_details.get("resume_score") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 async def personalize_section_with_llm(
@@ -465,8 +474,12 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             return # Stop processing this job
 
         # 3. Upload PDF to Supabase Storage
-        # Construct a unique path, e.g., using job_id
-        destination_path = f"resume_{job_id}.pdf"
+        destination_path = build_custom_resume_filename(
+            candidate_name=personalized_resume_data.name,
+            company=job_details.get("company", ""),
+            job_title=job_details.get("job_title", ""),
+            job_id=job_id,
+        )
         logging.info(f"Uploading PDF to {destination_path} for job_id: {job_id}")
         resume_path = supabase_utils.upload_customized_resume_to_storage(pdf_bytes, destination_path)
 
@@ -503,6 +516,10 @@ async def run_job_processing_cycle():
     Fetches top jobs and processes them one by one.
     """
     logging.info("Starting new job processing cycle...")
+
+    if not app_settings.is_auto_resume_enabled():
+        logging.info("Auto custom resume generation is disabled in Settings. Skipping this cycle.")
+        return
 
     # 1. Retrieve Base Resume Details from Supabase (with local file fallback)
     resume_path = getattr(config, 'BASE_RESUME_PATH', 'resume.json')
@@ -543,14 +560,20 @@ async def run_job_processing_cycle():
 
     # 2. Fetch Top Jobs to Process
     jobs_limit = config.JOBS_TO_CUSTOMIZE_PER_RUN
+    min_score = app_settings.get_min_score()
     logging.info(f"Fetching top {jobs_limit} scored jobs to apply for...")
     jobs_to_process = supabase_utils.get_top_scored_jobs_for_resume_generation(limit=jobs_limit)
+    jobs_to_process = [
+        job
+        for job in jobs_to_process
+        if _resume_score_value(job) >= min_score
+    ]
 
     if not jobs_to_process:
-        logging.info("No new jobs found to process in this cycle.")
+        logging.info("No new jobs found to process in this cycle at or above score %s.", min_score)
         return
 
-    logging.info(f"Found {len(jobs_to_process)} jobs to process.")
+    logging.info(f"Found {len(jobs_to_process)} jobs to process at or above score {min_score}.")
 
     # 3. Process Each Job Sequentially (to avoid overwhelming Gemini/resources)
     for job_details in jobs_to_process:

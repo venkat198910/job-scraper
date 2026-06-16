@@ -11,6 +11,7 @@ from markdownify import markdownify as md
 import json
 import re
 from urllib.parse import urlencode
+import app_settings
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -72,9 +73,7 @@ def _get_linkedin_experience_levels_param() -> str | None:
 
 def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
     """Filter jobs to descriptions that clearly request the configured experience range."""
-    min_years = getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", None)
-    max_years = getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", None)
-    require_match = getattr(config, "LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH", False)
+    min_years, max_years, require_match = app_settings.get_experience_range()
 
     if min_years is None or max_years is None:
         return True
@@ -139,13 +138,17 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
             "location": location,
             "f_TPR": config.LINKEDIN_JOB_POSTING_DATE,
             "f_JT": config.LINKEDIN_JOB_TYPE,
-            "f_WT": config.LINKEDIN_F_WT,
             "start": start,
         }
+        work_type = app_settings.get_linkedin_work_type_param()
+        if work_type:
+            query_params["f_WT"] = work_type
+        if app_settings.is_easy_apply_only():
+            query_params["f_AL"] = "true"
         experience_levels = _get_linkedin_experience_levels_param()
         if experience_levels:
             query_params["f_E"] = experience_levels
-        geo_id = getattr(config, "LINKEDIN_GEO_IDS", {}).get(location, config.LINKEDIN_GEO_ID)
+        geo_id = getattr(config, "LINKEDIN_GEO_IDS", {}).get(location)
         if geo_id:
             query_params["geoId"] = geo_id
         target_url = (
@@ -459,8 +462,8 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
                     logging.info(
                         "Skipping job ID %s because requested experience is outside %s-%s years.",
                         job_id,
-                        getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", "N/A"),
-                        getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", "N/A"),
+                        app_settings.get_experience_range()[0],
+                        app_settings.get_experience_range()[1],
                     )
                     continue
                 if 'job_id' in details and details['job_id'] is not None:
@@ -774,12 +777,14 @@ if __name__ == "__main__":
 
     total_new_jobs_saved = 0
 
+    scraping_sources = app_settings.get_enabled_scraping_sources()
+
     # Get jobs from LinkedIn
-    if "linkedin" in config.SCRAPING_SOURCES:
+    if "linkedin" in scraping_sources:
         logging.info("\n--- Starting LinkedIn Job Scraping ---")
         max_jobs_per_search = config.MAX_JOBS_PER_SEARCH.get("linkedin", getattr(config, 'DEFAULT_MAX_JOBS_PER_SEARCH', 10))
-        linkedin_locations = getattr(config, "LINKEDIN_LOCATIONS", [config.LINKEDIN_LOCATION])
-        for query in config.LINKEDIN_SEARCH_QUERIES:
+        linkedin_locations = app_settings.get_linkedin_locations()
+        for query in app_settings.get_linkedin_search_queries():
             for location in linkedin_locations:
                 print(f"\n{'='*20} Processing Search Query: '{query}' in '{location}' {'='*20}")
 
@@ -797,10 +802,10 @@ if __name__ == "__main__":
         logging.info("\n--- Skipping LinkedIn Job Scraping per config ---")
 
     # Get jobs from Careers Future
-    if "careers_future" in config.SCRAPING_SOURCES:
+    if "careers_future" in scraping_sources:
         logging.info(f"\n--- Starting Careers Future Job Scraping ---")
         max_jobs_per_search = config.MAX_JOBS_PER_SEARCH.get("careers_future", getattr(config, 'DEFAULT_MAX_JOBS_PER_SEARCH', 10))
-        for query in config.CAREERS_FUTURE_SEARCH_QUERIES:
+        for query in app_settings.get_careers_future_search_queries():
             logging.info(f"\n{'='*20} Processing Careers Future Search Query: '{query}' {'='*20}")
 
             # 1. Process the query: Scrape IDs, filter, fetch new details

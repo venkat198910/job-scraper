@@ -1,13 +1,15 @@
 import io
 import logging
+import os
 import re
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -306,75 +308,357 @@ def _draw_certifications(pdf: canvas.Canvas, resume_data: Resume, x: float, y: f
     return _draw_wrapped_text(pdf, "; ".join(cert_text), x, y, width, "Helvetica", 7.7, 8.8, max_lines=2)
 
 
+def _draw_reference_section(pdf: canvas.Canvas, title: str, x: float, y: float, width: float) -> float:
+    pdf.setFillColor(colors.black)
+    pdf.setFont("Times-Bold", 14.5)
+    pdf.drawCentredString(x + width / 2, y, title)
+    y -= 9
+    pdf.setStrokeColor(colors.black)
+    pdf.setLineWidth(0.8)
+    pdf.line(x, y, x + width, y)
+    return y - 11
+
+
+def _draw_reference_centered(
+    pdf: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    font_name: str,
+    font_size: float,
+    leading: float,
+    max_lines: int = 1,
+    fill=colors.black,
+) -> float:
+    pdf.setFillColor(fill)
+    lines = _wrap_text(text, font_name, font_size, width)
+    for line in lines[:max_lines]:
+        pdf.setFont(font_name, font_size)
+        pdf.drawCentredString(x + width / 2, y, line)
+        y -= leading
+    pdf.setFillColor(colors.black)
+    return y
+
+
+def _draw_reference_bullet(
+    pdf: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    font_size: float = 8.2,
+    leading: float = 10.0,
+    max_lines: int = 2,
+) -> float:
+    lines = _wrap_text(text, "Helvetica", font_size, width - 12)
+    if not lines:
+        return y
+    pdf.setFillColor(colors.HexColor("#444444"))
+    pdf.setFont("Helvetica", font_size)
+    pdf.drawString(x + 2, y, u"\u2022")
+    pdf.drawString(x + 12, y, lines[0])
+    y -= leading
+    for line in lines[1:max_lines]:
+        pdf.drawString(x + 12, y, line)
+        y -= leading
+    pdf.setFillColor(colors.black)
+    return y
+
+
+def _format_dates(start: str, end: str) -> str:
+    if _has_value(start) and _has_value(end):
+        return f"{_clean_text(start)} - {_clean_text(end)}"
+    if _has_value(start):
+        return f"{_clean_text(start)} - Present"
+    return _clean_text(end) if _has_value(end) else ""
+
+
+def _profile_photo_path() -> str:
+    return os.path.join(os.path.dirname(__file__), "assets", "profile_photo.png")
+
+
+def _resume_tagline(resume_data: Resume) -> str:
+    skills = {skill.lower() for skill in (resume_data.skills or [])}
+    first_theme = "Kubernetes & CI/CD Expertise"
+    second_theme = "Infrastructure Automation"
+    if "gcp" in skills and "kubernetes" not in skills:
+        first_theme = "Cloud Platform Engineering"
+    if "terraform" not in skills and "iac" not in skills and "ansible" not in skills:
+        second_theme = "DevOps Automation"
+    return f"Senior DevOps Engineer | {first_theme} | {second_theme}"
+
+
+def _company_blurb(company: str) -> str:
+    company_key = _clean_text(company).lower()
+    blurbs = {
+        "infinite computer solutions": "A leading provider of IT solutions and services",
+        "capgemini technology solutions": "A global leader in consulting, digital transformation, technology and engineering services",
+        "societe generale": "A leading financial services company providing solutions in investment banking and asset management",
+        "motorola solutions": "A global leader in communications equipment and software, providing technologies that enable public safety",
+        "motorola solutions (kodiak networks)": "A global leader in communications equipment and software, providing technologies that enable public safety",
+        "bnp paribas": "A multinational banking and financial services company",
+    }
+    return blurbs.get(company_key, "")
+
+
+def _achievement_items(resume_data: Resume) -> list[tuple[str, str]]:
+    bullets = []
+    for exp in resume_data.experience or []:
+        bullets.extend(_split_bullets(exp.description, 8, 150))
+        if len(bullets) >= 3:
+            break
+
+    defaults = [
+        (
+            "Infrastructure Automation Success",
+            "Automated infrastructure provisioning and reduced manual operational effort through scalable IAC practices.",
+        ),
+        (
+            "Kubernetes Availability Excellence",
+            "Enhanced Kubernetes platform reliability and supported production-grade container workloads.",
+        ),
+        (
+            "CI/CD Transformation Impact",
+            "Improved deployment speed through pipeline standardization and modern DevOps workflows.",
+        ),
+    ]
+
+    titles = [item[0] for item in defaults]
+    items = []
+    for index, title in enumerate(titles):
+        text = bullets[index] if index < len(bullets) else defaults[index][1]
+        items.append((title, _clip(text, 125)))
+    return items
+
+
+def _draw_reference_experience(
+    pdf: canvas.Canvas,
+    exp,
+    x: float,
+    y: float,
+    width: float,
+    bullet_count: int,
+    compact: bool = False,
+) -> float:
+    company = _clean_text(exp.company)
+    title = _clean_text(exp.job_title)
+    location = _clean_text(exp.location)
+    dates = _format_dates(exp.start_date, exp.end_date)
+
+    company_size = 11.8 if not compact else 11.0
+    body_size = 8.2 if not compact else 7.9
+    leading = 9.8 if not compact else 9.1
+
+    pdf.setFillColor(colors.HexColor("#6F7A7A"))
+    pdf.setFont("Helvetica", company_size)
+    if company:
+        pdf.drawString(x, y, company)
+    if location:
+        pdf.setFillColor(colors.HexColor("#333333"))
+        pdf.setFont("Helvetica", 9.4)
+        pdf.drawRightString(x + width, y, location)
+    y -= 13.0 if not compact else 12.0
+
+    pdf.setFillColor(colors.black)
+    pdf.setFont("Helvetica-Bold", 9.2 if not compact else 8.8)
+    if title:
+        pdf.drawString(x, y, title)
+    if dates:
+        pdf.setFillColor(colors.HexColor("#333333"))
+        pdf.setFont("Helvetica", 9.2 if not compact else 8.6)
+        pdf.drawRightString(x + width, y, dates)
+    y -= 12.5 if not compact else 11.0
+
+    blurb = _company_blurb(company)
+    if blurb:
+        y = _draw_wrapped_text(pdf, blurb, x, y, width, "Helvetica", body_size, leading, max_lines=1)
+        y -= 1.0
+
+    for bullet in _split_bullets(exp.description, bullet_count, 150 if compact else 165):
+        y = _draw_reference_bullet(pdf, bullet, x, y, width, body_size, leading, max_lines=2)
+    return y - (6 if not compact else 4)
+
+
+def _draw_reference_education(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
+    education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
+    if not education:
+        return y
+    y = _draw_reference_section(pdf, "Education", x, y, width)
+    for edu in education[:2]:
+        institution = _clean_text(edu.institution)
+        degree = _clean_text(edu.degree)
+        if _has_value(edu.field_of_study):
+            degree = f"{degree} ({_clean_text(edu.field_of_study)})" if degree else _clean_text(edu.field_of_study)
+        dates = _format_dates(edu.start_year, edu.end_year)
+        location = "Tirupati" if "tirupati" in institution.lower() else ""
+
+        pdf.setFillColor(colors.HexColor("#6F7A7A"))
+        pdf.setFont("Helvetica", 11.0)
+        pdf.drawString(x, y, institution)
+        if location:
+            pdf.setFillColor(colors.HexColor("#333333"))
+            pdf.setFont("Helvetica", 9.3)
+            pdf.drawRightString(x + width, y, location)
+        y -= 12
+        pdf.setFillColor(colors.black)
+        pdf.setFont("Helvetica-Bold", 8.8)
+        pdf.drawString(x, y, degree)
+        if dates:
+            pdf.setFillColor(colors.HexColor("#333333"))
+            pdf.setFont("Helvetica", 9.0)
+            pdf.drawRightString(x + width, y, dates)
+        y -= 16
+    return y - 3
+
+
+def _draw_reference_skills(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
+    skills = [_clean_text(skill) for skill in (resume_data.skills or []) if _has_value(skill)]
+    if not skills:
+        return y
+    y = _draw_reference_section(pdf, "Skills", x, y, width)
+    return _draw_wrapped_text(pdf, " \u2022 ".join(skills[:42]), x, y, width, "Helvetica", 8.2, 10.2, max_lines=4)
+
+
 def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
     buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=letter, pageCompression=0)
-    page_width, page_height = letter
-    margin = 0.46 * inch
+    pdf = canvas.Canvas(buffer, pagesize=A4, pageCompression=0)
+    page_width, page_height = A4
+    margin = 0.38 * inch
     content_width = page_width - (2 * margin)
 
-    def draw_header(y: float, include_summary: bool = False) -> float:
+    def draw_header(y: float) -> float:
+        photo_path = _profile_photo_path()
+        if os.path.exists(photo_path):
+            photo_size = 68
+            pdf.drawImage(
+                ImageReader(photo_path),
+                (page_width - photo_size) / 2,
+                y - photo_size,
+                width=photo_size,
+                height=photo_size,
+                mask="auto",
+            )
+            y -= photo_size + 16
+
         if _has_value(resume_data.name):
-            pdf.setFont("Helvetica-Bold", 20)
+            pdf.setFont("Times-Bold", 16.5)
             pdf.drawCentredString(page_width / 2, y, _clean_text(str(resume_data.name)).upper())
-            y -= 12
+            y -= 16
+
+        y = _draw_reference_centered(
+            pdf,
+            _resume_tagline(resume_data),
+            margin,
+            y,
+            content_width,
+            "Helvetica",
+            12.0,
+            13.5,
+            max_lines=1,
+            fill=colors.HexColor("#6F7A7A"),
+        )
 
         contact_parts = [_clean_text(value) for value in [resume_data.email, resume_data.phone, resume_data.location] if _has_value(value)]
-        if contact_parts:
-            pdf.setFont("Helvetica", 8.2)
-            pdf.drawCentredString(page_width / 2, y, " | ".join(contact_parts))
-            y -= 10
-
         if resume_data.links and _has_value(resume_data.links.linkedin):
-            pdf.setFillColor(colors.HexColor("#1D4ED8"))
-            pdf.setFont("Helvetica", 7.8)
-            pdf.drawCentredString(page_width / 2, y, "LinkedIn")
+            contact_parts.insert(2 if len(contact_parts) >= 2 else len(contact_parts), _clean_text(resume_data.links.linkedin))
+        if "Open to Relocation" not in contact_parts:
+            contact_parts.append("Open to Relocation")
+        if contact_parts:
+            pdf.setFont("Helvetica", 8.1)
+            pdf.setFillColor(colors.HexColor("#333333"))
+            pdf.drawCentredString(page_width / 2, y, "  \u2022  ".join(contact_parts))
             pdf.setFillColor(colors.black)
-            y -= 11
+            y -= 25
 
-        if include_summary and _has_value(resume_data.summary):
-            y = _draw_section(pdf, "PROFESSIONAL SUMMARY", margin, y, content_width)
+        if _has_value(resume_data.summary):
+            y = _draw_reference_section(pdf, "Summary", margin, y, content_width)
             y = _draw_wrapped_text(
                 pdf,
-                _clip(resume_data.summary, 520),
+                _clip(resume_data.summary, 620),
                 margin,
                 y,
                 content_width,
                 "Helvetica",
-                8.1,
-                9.2,
+                8.4,
+                10.4,
                 max_lines=4,
             )
-            y -= 4
+            y -= 20
 
         return y
 
-    y = draw_header(page_height - margin, include_summary=True)
+    y = draw_header(page_height - margin)
 
-    skills = [_clean_text(skill) for skill in (resume_data.skills or []) if _has_value(skill)]
-    if skills:
-        y = _draw_section(pdf, "CORE SKILLS", margin, y, content_width)
-        y = _draw_wrapped_text(pdf, ", ".join(skills[:20]), margin, y, content_width, "Helvetica", 7.9, 9.0, max_lines=3)
-        y -= 4
+    certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
+    if certifications:
+        y = _draw_reference_section(pdf, "Certifications", margin, y, content_width)
+        for cert in certifications[:2]:
+            item = _clean_text(cert.name)
+            issuer = _clean_text(cert.issuer) if _has_value(cert.issuer) else ""
+            if issuer and issuer.lower() != item.lower():
+                item = f"{item} \u2014 {issuer}" if item else issuer
+            pdf.setFillColor(colors.HexColor("#6F7A7A"))
+            y = _draw_wrapped_text(pdf, item, margin, y, content_width, "Helvetica", 9.2, 11.0, max_lines=1)
+        pdf.setFillColor(colors.black)
+        y -= 18
+
+    y = _draw_reference_section(pdf, "Key Achievements", margin, y, content_width)
+    column_gap = 18
+    column_width = (content_width - (2 * column_gap)) / 3
+    achievement_top = y
+    max_column_y = y
+    for index, (title, text) in enumerate(_achievement_items(resume_data)):
+        col_x = margin + index * (column_width + column_gap)
+        pdf.setFont("Helvetica-Bold", 8.6)
+        pdf.setFillColor(colors.black)
+        pdf.drawCentredString(col_x + column_width / 2, y, title)
+        col_y = y - 10
+        col_y = _draw_reference_centered(
+            pdf,
+            text,
+            col_x,
+            col_y,
+            column_width,
+            "Helvetica",
+            8.0,
+            9.5,
+            max_lines=4,
+            fill=colors.HexColor("#444444"),
+        )
+        max_column_y = min(max_column_y, col_y)
+    y = max_column_y - 24
 
     experiences = [exp for exp in (resume_data.experience or []) if _has_value(exp.job_title) or _has_value(exp.description)]
-    page_one_experiences = experiences[:5]
-    page_two_experiences = experiences[5:7]
+    page_one_experiences = experiences[:3]
+    page_two_experiences = experiences[3:7]
 
-    y = _draw_section(pdf, "PROFESSIONAL EXPERIENCE", margin, y, content_width)
-    for exp in page_one_experiences:
-        y = _draw_experience_item(pdf, exp, margin, y, content_width)
+    y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
+    page_one_bullet_counts = [6, 5, 4]
+    for index, exp in enumerate(page_one_experiences):
+        y = _draw_reference_experience(
+            pdf,
+            exp,
+            margin,
+            y,
+            content_width,
+            page_one_bullet_counts[index],
+            compact=index >= 2,
+        )
 
     pdf.showPage()
 
-    y = page_height - margin
-    for exp in page_two_experiences:
-        y = _draw_experience_item(pdf, exp, margin, y, content_width)
+    y = page_height - margin - 5
+    y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
+    page_two_bullet_counts = [6, 4, 3, 3]
+    for index, exp in enumerate(page_two_experiences):
+        count = page_two_bullet_counts[index] if index < len(page_two_bullet_counts) else 3
+        y = _draw_reference_experience(pdf, exp, margin, y, content_width, count, compact=True)
 
-    if y > (1.25 * inch):
-        y = _draw_education(pdf, resume_data, margin, y, content_width)
-    if y > (0.9 * inch):
-        _draw_certifications(pdf, resume_data, margin, y, content_width)
+    if y > (1.95 * inch):
+        y = _draw_reference_education(pdf, resume_data, margin, y, content_width)
+    if y > (0.75 * inch):
+        _draw_reference_skills(pdf, resume_data, margin, y, content_width)
 
     pdf.save()
     pdf_bytes = buffer.getvalue()
