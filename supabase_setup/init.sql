@@ -818,6 +818,51 @@ GRANT ALL ON TABLE "public"."app_settings" TO "anon";
 GRANT ALL ON TABLE "public"."app_settings" TO "authenticated";
 GRANT ALL ON TABLE "public"."app_settings" TO "service_role";
 
+-- --- Application Queue Table ---
+-- Stores application-assistant candidates and manual-review status.
+CREATE TABLE IF NOT EXISTS "public"."application_queue" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "job_id" "text" NOT NULL,
+    "customized_resume_id" "uuid",
+    "application_type" "text" DEFAULT 'linkedin_easy_apply_review'::"text" NOT NULL,
+    "portal" "text",
+    "status" "text" DEFAULT 'application_ready'::"text" NOT NULL,
+    "run_mode" "text" DEFAULT 'review'::"text" NOT NULL,
+    "apply_url" "text",
+    "resume_path" "text",
+    "score" smallint,
+    "notes" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+ALTER TABLE "public"."application_queue" OWNER TO "postgres";
+
+ALTER TABLE ONLY "public"."application_queue"
+    ADD CONSTRAINT "application_queue_pkey" PRIMARY KEY ("id");
+
+ALTER TABLE ONLY "public"."application_queue"
+    ADD CONSTRAINT "application_queue_job_type_unique" UNIQUE ("job_id", "application_type");
+
+CREATE INDEX IF NOT EXISTS "idx_application_queue_status" ON "public"."application_queue" USING "btree" ("status");
+CREATE INDEX IF NOT EXISTS "idx_application_queue_score" ON "public"."application_queue" USING "btree" ("score");
+
+CREATE OR REPLACE TRIGGER "update_application_queue_updated_at"
+    BEFORE UPDATE ON "public"."application_queue"
+    FOR EACH ROW EXECUTE FUNCTION "public"."update_base_resume_updated_at_column"();
+
+ALTER TABLE ONLY "public"."application_queue"
+    ADD CONSTRAINT "application_queue_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "public"."jobs"("job_id") ON UPDATE CASCADE ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."application_queue"
+    ADD CONSTRAINT "application_queue_customized_resume_id_fkey" FOREIGN KEY ("customized_resume_id") REFERENCES "public"."customized_resumes"("id") ON UPDATE CASCADE ON DELETE SET NULL;
+
+ALTER TABLE "public"."application_queue" ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE "public"."application_queue" TO "anon";
+GRANT ALL ON TABLE "public"."application_queue" TO "authenticated";
+GRANT ALL ON TABLE "public"."application_queue" TO "service_role";
+
 -- --- Storage Setup ---
 -- Create the resumes storage bucket for uploading the original resume PDF
 INSERT INTO storage.buckets (id, name, public)

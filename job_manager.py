@@ -7,6 +7,7 @@ import logging
 
 # Import shared modules
 import config
+import app_settings
 import user_agents
 from supabase_utils import supabase # Use the initialized Supabase client
 
@@ -34,9 +35,10 @@ async def _check_single_linkedin_job_active(job_id: str, client: httpx.AsyncClie
     job_detail_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
     retries = 0
     inactive_keywords = ["this job is no longer available", "job is closed", "No longer accepting applications"] # Add more if needed
+    active_check_max_retries = app_settings.get_advanced_int("activeCheckMaxRetries")
 
 
-    while retries <= config.ACTIVE_CHECK_MAX_RETRIES:
+    while retries <= active_check_max_retries:
         try:
             sleep_time = random.uniform(5.0, 15.0)
             logging.info(f"Waiting for {sleep_time:.2f} seconds before next request...")
@@ -46,12 +48,12 @@ async def _check_single_linkedin_job_active(job_id: str, client: httpx.AsyncClie
             user_agent = random.choice(user_agents.USER_AGENTS)
             headers = {'User-Agent': user_agent}
 
-            logging.debug(f"Checking job {job_id} (Attempt {retries+1}/{config.ACTIVE_CHECK_MAX_RETRIES+1}) URL: {job_detail_url} with UA: {user_agent}")
+            logging.debug(f"Checking job {job_id} (Attempt {retries+1}/{active_check_max_retries+1}) URL: {job_detail_url} with UA: {user_agent}")
 
             response = await client.get(
                 job_detail_url,
                 headers=headers,
-                timeout=config.ACTIVE_CHECK_TIMEOUT,
+                timeout=app_settings.get_advanced_int("activeCheckTimeout"),
                 follow_redirects=True # Allow redirects to check final destination
             )
 
@@ -87,12 +89,12 @@ async def _check_single_linkedin_job_active(job_id: str, client: httpx.AsyncClie
             logging.error(f"Unexpected error checking job {job_id} (Attempt {retries+1}): {e}")
 
         retries += 1
-        if retries <= config.ACTIVE_CHECK_MAX_RETRIES:
-            wait_time = config.ACTIVE_CHECK_RETRY_DELAY + random.uniform(0, 5)
+        if retries <= active_check_max_retries:
+            wait_time = app_settings.get_advanced_int("activeCheckRetryDelay") + random.uniform(0, 5)
             logging.info(f"Retrying job {job_id} check after {wait_time:.2f} seconds...")
             await asyncio.sleep(wait_time)
 
-    logging.error(f"Failed to check job {job_id} activity after {config.ACTIVE_CHECK_MAX_RETRIES + 1} attempts.")
+    logging.error(f"Failed to check job {job_id} activity after {active_check_max_retries + 1} attempts.")
     return None # Failed to determine status
 
 # --- Main Management Functions ---
@@ -100,11 +102,12 @@ async def _check_single_linkedin_job_active(job_id: str, client: httpx.AsyncClie
 async def mark_expired_jobs():
     """Marks old jobs (not applied/interviewing) as expired."""
     logging.info("--- Starting Task: Mark Expired Jobs ---")
-    expiry_date = get_past_date(config.JOB_EXPIRY_DAYS)
+    job_expiry_days = app_settings.get_advanced_int("jobExpiryDays")
+    expiry_date = get_past_date(job_expiry_days)
     # Format for Supabase timestampz query
     expiry_date_str = expiry_date.isoformat()
     excluded_statuses = {'applied', 'offer', 'offered', 'interviewing'} # Statuses that mean "don't expire"
-    logging.info(f"Expiring active jobs scraped before {expiry_date_str} ({config.JOB_EXPIRY_DAYS} day threshold).")
+    logging.info(f"Expiring active jobs scraped before {expiry_date_str} ({job_expiry_days} day threshold).")
 
     try:
         # Select old active jobs first, then apply the status exclusion in Python.
@@ -125,7 +128,7 @@ async def mark_expired_jobs():
             skipped_count = len(response.data) - len(job_ids_to_expire)
             if skipped_count:
                 logging.info(f"Skipped {skipped_count} old active jobs with protected statuses: {sorted(excluded_statuses)}.")
-            logging.info(f"Found {len(job_ids_to_expire)} jobs older than {config.JOB_EXPIRY_DAYS} days to mark as expired.")
+            logging.info(f"Found {len(job_ids_to_expire)} jobs older than {job_expiry_days} days to mark as expired.")
 
             if job_ids_to_expire:
                 # Update in batches if necessary, though supabase-py might handle large lists
@@ -157,7 +160,9 @@ async def mark_expired_jobs():
 async def check_linkedin_job_activity():
     """Checks if active jobs are still available on LinkedIn."""
     logging.info("--- Starting Task: Check Job Activity ---")
-    check_older_than_date = get_past_date(config.JOB_CHECK_DAYS)
+    job_check_days = app_settings.get_advanced_int("jobCheckDays")
+    job_check_limit = app_settings.get_advanced_int("jobCheckLimit")
+    check_older_than_date = get_past_date(job_check_days)
     check_older_than_date_str = check_older_than_date.isoformat()
     now_str = get_utc_now().isoformat()
 
@@ -173,7 +178,7 @@ async def check_linkedin_job_activity():
             .eq("provider", "linkedin")\
             .lt("last_checked", check_older_than_date_str)\
             .order("last_checked", desc=False)\
-            .limit(config.JOB_CHECK_LIMIT)
+            .limit(job_check_limit)
 
         response = query.execute()
 
@@ -182,7 +187,7 @@ async def check_linkedin_job_activity():
                 job for job in response.data
                 if (job.get('status') or '').lower() not in excluded_statuses
             ]
-            logging.info(f"Found {len(jobs_to_check)} active jobs to check (limit: {config.JOB_CHECK_LIMIT}).")
+            logging.info(f"Found {len(jobs_to_check)} active jobs to check (limit: {job_check_limit}).")
         else:
             logging.info("No active jobs need checking currently.")
             return # Nothing to do
@@ -244,7 +249,8 @@ async def check_linkedin_job_activity():
 async def delete_old_inactive_jobs():
     """Permanently deletes very old inactive jobs."""
     logging.info("--- Starting Task: Delete Old Inactive Jobs ---")
-    delete_older_than_date = get_past_date(config.JOB_DELETION_DAYS)
+    job_deletion_days = app_settings.get_advanced_int("jobDeletionDays")
+    delete_older_than_date = get_past_date(job_deletion_days)
     delete_older_than_date_str = delete_older_than_date.isoformat()
     inactive_states = ['expired', 'removed']
 
@@ -266,7 +272,7 @@ async def delete_old_inactive_jobs():
              deleted_count = delete_response.count
 
         if deleted_count > 0:
-            logging.info(f"Successfully deleted {deleted_count} inactive jobs older than {config.JOB_DELETION_DAYS} days.")
+            logging.info(f"Successfully deleted {deleted_count} inactive jobs older than {job_deletion_days} days.")
         else:
             logging.info("No old inactive jobs found to delete.")
             # Log raw response if structure is unexpected but count is 0

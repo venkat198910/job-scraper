@@ -409,7 +409,7 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             "skills": base_resume_details.skills,
         }
 
-        sleep_time = config.LLM_REQUEST_DELAY_SECONDS
+        sleep_time = app_settings.get_advanced_int("llmRequestDelaySeconds")
 
         for section_name, section_content in sections_to_personalize.items():
             if any_validation_failed: # If a previous section failed validation, skip further personalization

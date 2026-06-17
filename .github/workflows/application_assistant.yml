@@ -1,0 +1,56 @@
+name: Application Assistant
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Safe mode to run. This workflow intentionally does not submit applications."
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - queue
+          - plan-all-portals
+      min_score:
+        description: "Minimum score for application candidates"
+        required: true
+        default: "80"
+      limit:
+        description: "Maximum candidates to inspect"
+        required: true
+        default: "10"
+
+jobs:
+  application_assistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run application assistant
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          PROVIDER="linkedin"
+          MODE="${{ inputs.mode }}"
+          if [ "$MODE" = "plan-all-portals" ]; then
+            MODE="plan"
+            PROVIDER="all"
+          fi
+          python application_assistant.py \
+            --mode "$MODE" \
+            --provider "$PROVIDER" \
+            --min-score "${{ inputs.min_score }}" \
+            --limit "${{ inputs.limit }}"

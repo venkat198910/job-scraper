@@ -13,9 +13,29 @@ SETTINGS_STORAGE_PATH = "settings/app_settings.json"
 DEFAULT_SETTINGS = {
     "locations": getattr(config, "LINKEDIN_LOCATIONS", [getattr(config, "LINKEDIN_LOCATION", "")]),
     "roles": getattr(config, "LINKEDIN_SEARCH_QUERIES", []),
+    "jobTypes": [getattr(config, "LINKEDIN_JOB_TYPE", "F")],
+    "postingDateFilter": getattr(config, "LINKEDIN_JOB_POSTING_DATE", "r86400"),
     "minExperience": getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", 6),
     "maxExperience": getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", 12),
     "minScore": 90,
+    "advanced": {
+        "llmMaxRpm": getattr(config, "LLM_MAX_RPM", 10),
+        "llmMaxRetries": getattr(config, "LLM_MAX_RETRIES", 3),
+        "llmRetryBaseDelay": getattr(config, "LLM_RETRY_BASE_DELAY", 10),
+        "llmDailyRequestBudget": getattr(config, "LLM_DAILY_REQUEST_BUDGET", 0),
+        "llmRequestDelaySeconds": getattr(config, "LLM_REQUEST_DELAY_SECONDS", 8),
+        "linkedinMaxStart": getattr(config, "LINKEDIN_MAX_START", 1),
+        "requestTimeout": getattr(config, "REQUEST_TIMEOUT", 30),
+        "maxRetries": getattr(config, "MAX_RETRIES", 3),
+        "retryDelaySeconds": getattr(config, "RETRY_DELAY_SECONDS", 15),
+        "jobExpiryDays": getattr(config, "JOB_EXPIRY_DAYS", 7),
+        "jobCheckDays": getattr(config, "JOB_CHECK_DAYS", 3),
+        "jobDeletionDays": getattr(config, "JOB_DELETION_DAYS", 60),
+        "jobCheckLimit": getattr(config, "JOB_CHECK_LIMIT", 50),
+        "activeCheckTimeout": getattr(config, "ACTIVE_CHECK_TIMEOUT", 20),
+        "activeCheckMaxRetries": getattr(config, "ACTIVE_CHECK_MAX_RETRIES", 2),
+        "activeCheckRetryDelay": getattr(config, "ACTIVE_CHECK_RETRY_DELAY", 10),
+    },
     "toggles": {
         "linkedin": "linkedin" in getattr(config, "SCRAPING_SOURCES", []),
         "careersFuture": "careers_future" in getattr(config, "SCRAPING_SOURCES", []),
@@ -30,6 +50,18 @@ DEFAULT_SETTINGS = {
 }
 
 _cached_settings: dict[str, Any] | None = None
+JOB_TYPE_VALUES = {"F", "C", "P", "T", "I"}
+POSTING_DATE_VALUES = {
+    "r3600",
+    "r7200",
+    "r10800",
+    "r14400",
+    "r18000",
+    "r21600",
+    "r43200",
+    "r86400",
+    "r604800",
+}
 
 
 def _clean_string_list(value: Any, fallback: list[str]) -> list[str]:
@@ -57,6 +89,16 @@ def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
     return min(maximum, max(minimum, number))
 
 
+def _enum_list(value: Any, fallback: list[str], allowed: set[str]) -> list[str]:
+    cleaned = [item for item in _clean_string_list(value, fallback) if item in allowed]
+    return cleaned or fallback
+
+
+def _enum_value(value: Any, fallback: str, allowed: set[str]) -> str:
+    text = str(value or "").strip()
+    return text if text in allowed else fallback
+
+
 def normalize_settings(value: Any) -> dict[str, Any]:
     incoming = value if isinstance(value, dict) else {}
     defaults = copy.deepcopy(DEFAULT_SETTINGS)
@@ -72,13 +114,38 @@ def normalize_settings(value: Any) -> dict[str, Any]:
         min_experience,
         _bounded_int(incoming.get("maxExperience"), defaults["maxExperience"], 0, 50),
     )
+    incoming_advanced = incoming.get("advanced") if isinstance(incoming.get("advanced"), dict) else {}
 
     return {
         "locations": _clean_string_list(incoming.get("locations"), defaults["locations"]),
         "roles": _clean_string_list(incoming.get("roles"), defaults["roles"]),
+        "jobTypes": _enum_list(incoming.get("jobTypes"), defaults["jobTypes"], JOB_TYPE_VALUES),
+        "postingDateFilter": _enum_value(
+            incoming.get("postingDateFilter"),
+            defaults["postingDateFilter"],
+            POSTING_DATE_VALUES,
+        ),
         "minExperience": min_experience,
         "maxExperience": max_experience,
         "minScore": _bounded_int(incoming.get("minScore"), defaults["minScore"], 0, 100),
+        "advanced": {
+            "llmMaxRpm": _bounded_int(incoming_advanced.get("llmMaxRpm"), defaults["advanced"]["llmMaxRpm"], 1, 120),
+            "llmMaxRetries": _bounded_int(incoming_advanced.get("llmMaxRetries"), defaults["advanced"]["llmMaxRetries"], 0, 10),
+            "llmRetryBaseDelay": _bounded_int(incoming_advanced.get("llmRetryBaseDelay"), defaults["advanced"]["llmRetryBaseDelay"], 1, 300),
+            "llmDailyRequestBudget": _bounded_int(incoming_advanced.get("llmDailyRequestBudget"), defaults["advanced"]["llmDailyRequestBudget"], 0, 10000),
+            "llmRequestDelaySeconds": _bounded_int(incoming_advanced.get("llmRequestDelaySeconds"), defaults["advanced"]["llmRequestDelaySeconds"], 0, 120),
+            "linkedinMaxStart": _bounded_int(incoming_advanced.get("linkedinMaxStart"), defaults["advanced"]["linkedinMaxStart"], 0, 1000),
+            "requestTimeout": _bounded_int(incoming_advanced.get("requestTimeout"), defaults["advanced"]["requestTimeout"], 5, 300),
+            "maxRetries": _bounded_int(incoming_advanced.get("maxRetries"), defaults["advanced"]["maxRetries"], 0, 10),
+            "retryDelaySeconds": _bounded_int(incoming_advanced.get("retryDelaySeconds"), defaults["advanced"]["retryDelaySeconds"], 1, 300),
+            "jobExpiryDays": _bounded_int(incoming_advanced.get("jobExpiryDays"), defaults["advanced"]["jobExpiryDays"], 1, 365),
+            "jobCheckDays": _bounded_int(incoming_advanced.get("jobCheckDays"), defaults["advanced"]["jobCheckDays"], 1, 365),
+            "jobDeletionDays": _bounded_int(incoming_advanced.get("jobDeletionDays"), defaults["advanced"]["jobDeletionDays"], 1, 3650),
+            "jobCheckLimit": _bounded_int(incoming_advanced.get("jobCheckLimit"), defaults["advanced"]["jobCheckLimit"], 1, 1000),
+            "activeCheckTimeout": _bounded_int(incoming_advanced.get("activeCheckTimeout"), defaults["advanced"]["activeCheckTimeout"], 5, 300),
+            "activeCheckMaxRetries": _bounded_int(incoming_advanced.get("activeCheckMaxRetries"), defaults["advanced"]["activeCheckMaxRetries"], 0, 10),
+            "activeCheckRetryDelay": _bounded_int(incoming_advanced.get("activeCheckRetryDelay"), defaults["advanced"]["activeCheckRetryDelay"], 1, 300),
+        },
         "toggles": {
             key: bool(incoming_toggles.get(key, default_value))
             for key, default_value in defaults["toggles"].items()
@@ -151,6 +218,14 @@ def get_linkedin_search_queries() -> list[str]:
     return get_app_settings()["roles"]
 
 
+def get_linkedin_job_type_param() -> str:
+    return ",".join(get_app_settings()["jobTypes"])
+
+
+def get_linkedin_posting_date_filter() -> str:
+    return get_app_settings()["postingDateFilter"]
+
+
 def get_careers_future_search_queries() -> list[str]:
     if get_app_settings()["toggles"].get("careersFuture"):
         return get_app_settings()["roles"]
@@ -188,3 +263,8 @@ def get_linkedin_work_type_param() -> str | None:
 
 def is_easy_apply_only() -> bool:
     return bool(get_app_settings()["toggles"].get("easyApplyOnly"))
+
+
+def get_advanced_int(key: str) -> int:
+    settings = get_app_settings()
+    return int(settings["advanced"].get(key, DEFAULT_SETTINGS["advanced"][key]))

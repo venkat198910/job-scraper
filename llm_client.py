@@ -31,6 +31,7 @@ import litellm
 from pydantic import BaseModel
 
 import config
+import app_settings
 
 logger = logging.getLogger(__name__)
 
@@ -405,11 +406,11 @@ def _create_client(
     return LLMClient(
         model=model,
         api_key=api_key,
-        max_rpm=config.LLM_MAX_RPM,
-        max_retries=config.LLM_MAX_RETRIES,
-        retry_base_delay=config.LLM_RETRY_BASE_DELAY,
-        daily_budget=config.LLM_DAILY_REQUEST_BUDGET,
-        request_delay=config.LLM_REQUEST_DELAY_SECONDS,
+        max_rpm=app_settings.get_advanced_int("llmMaxRpm"),
+        max_retries=app_settings.get_advanced_int("llmMaxRetries"),
+        retry_base_delay=app_settings.get_advanced_int("llmRetryBaseDelay"),
+        daily_budget=app_settings.get_advanced_int("llmDailyRequestBudget"),
+        request_delay=app_settings.get_advanced_int("llmRequestDelaySeconds"),
         fallback_models=fallback_models or config.LLM_FALLBACK_MODELS,
     )
 

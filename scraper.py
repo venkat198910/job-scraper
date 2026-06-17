@@ -128,7 +128,7 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
 
     job_ids_list = []
     start = 0
-    max_start = config.LINKEDIN_MAX_START
+    max_start = app_settings.get_advanced_int("linkedinMaxStart")
 
 
     logging.info(f"--- Starting Phase 1: Scraping Job IDs (Max Start: {max_start}) ---")
@@ -136,8 +136,8 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
         query_params = {
             "keywords": search_query,
             "location": location,
-            "f_TPR": config.LINKEDIN_JOB_POSTING_DATE,
-            "f_JT": config.LINKEDIN_JOB_TYPE,
+            "f_TPR": app_settings.get_linkedin_posting_date_filter(),
+            "f_JT": app_settings.get_linkedin_job_type_param(),
             "start": start,
         }
         work_type = app_settings.get_linkedin_work_type_param()
@@ -171,17 +171,18 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
 
         res = None 
         retries = 0
-        while retries <= config.MAX_RETRIES:
+        max_retries = app_settings.get_advanced_int("maxRetries")
+        while retries <= max_retries:
             try:
-                res = requests.get(target_url, headers=headers, timeout=config.REQUEST_TIMEOUT)
+                res = requests.get(target_url, headers=headers, timeout=app_settings.get_advanced_int("requestTimeout"))
                 res.raise_for_status()
                 break
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429 and retries < config.MAX_RETRIES:
+                if e.response.status_code == 429 and retries < max_retries:
                     retries += 1
-                    wait_time = config.RETRY_DELAY_SECONDS + random.uniform(0, 5) 
+                    wait_time = app_settings.get_advanced_int("retryDelaySeconds") + random.uniform(0, 5) 
                     
-                    logging.warning(f"Error 429: Too Many Requests. Retrying attempt {retries}/{config.MAX_RETRIES} after {wait_time:.2f} seconds...")
+                    logging.warning(f"Error 429: Too Many Requests. Retrying attempt {retries}/{max_retries} after {wait_time:.2f} seconds...")
                     time.sleep(wait_time)
 
                     user_agent = random.choice(user_agents.USER_AGENTS)
@@ -272,17 +273,18 @@ def _fetch_linkedin_job_details(job_id: str) -> dict | None:
 
     resp = None 
     retries = 0
-    while retries <= config.MAX_RETRIES:
+    max_retries = app_settings.get_advanced_int("maxRetries")
+    while retries <= max_retries:
         try:
-            resp = requests.get(job_detail_url, headers=headers, timeout=config.REQUEST_TIMEOUT)
+            resp = requests.get(job_detail_url, headers=headers, timeout=app_settings.get_advanced_int("requestTimeout"))
             resp.raise_for_status()
             break
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429 and retries < config.MAX_RETRIES:
+            if e.response.status_code == 429 and retries < max_retries:
                 retries += 1
-                wait_time = config.RETRY_DELAY_SECONDS + random.uniform(0, 5) 
+                wait_time = app_settings.get_advanced_int("retryDelaySeconds") + random.uniform(0, 5) 
                 
-                logging.warning(f"Error 429 for job ID {job_id}. Retrying attempt {retries}/{config.MAX_RETRIES} after {wait_time:.2f} seconds...")
+                logging.warning(f"Error 429 for job ID {job_id}. Retrying attempt {retries}/{max_retries} after {wait_time:.2f} seconds...")
                 time.sleep(wait_time)
                 user_agent = random.choice(user_agents.USER_AGENTS)
                 headers = {'User-Agent': user_agent}
@@ -514,7 +516,7 @@ def _fetch_careers_future_jobs(search_query: str) -> list:
         skills_suggestions_response = requests.post(
             careers_future_suggestions_api_url, 
             data=skills_suggestions_payload,
-            timeout=config.REQUEST_TIMEOUT
+            timeout=app_settings.get_advanced_int("requestTimeout")
             )
 
         skills_suggestions_response.raise_for_status()
@@ -562,7 +564,7 @@ def _fetch_careers_future_jobs(search_query: str) -> list:
             total_api_calls_for_search += 1
             logging.info(f"Job search API call {total_api_calls_for_search}: POST to {current_search_url}")
         
-            search_response = requests.post(current_search_url, json=search_payload)
+            search_response = requests.post(current_search_url, json=search_payload, timeout=app_settings.get_advanced_int("requestTimeout"))
             search_response.raise_for_status()
             search_results_data  = search_response.json()
 
@@ -625,7 +627,7 @@ def _fetch_careers_future_job_details(job_id: str) -> dict | None:
     logging.info(f"Attempting to fetch job details for ID: {job_id} from URL: {api_url}")
 
     try:
-        response = requests.get(api_url, timeout=config.REQUEST_TIMEOUT) 
+        response = requests.get(api_url, timeout=app_settings.get_advanced_int("requestTimeout")) 
 
         response.raise_for_status()
 
