@@ -859,6 +859,31 @@ ALTER TABLE ONLY "public"."application_queue"
 
 ALTER TABLE "public"."application_queue" ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "application_queue_select_policy" ON "public"."application_queue";
+CREATE POLICY "application_queue_select_policy"
+    ON "public"."application_queue"
+    FOR SELECT
+    USING (true);
+
+DROP POLICY IF EXISTS "application_queue_insert_policy" ON "public"."application_queue";
+CREATE POLICY "application_queue_insert_policy"
+    ON "public"."application_queue"
+    FOR INSERT
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "application_queue_update_policy" ON "public"."application_queue";
+CREATE POLICY "application_queue_update_policy"
+    ON "public"."application_queue"
+    FOR UPDATE
+    USING (true)
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "application_queue_delete_policy" ON "public"."application_queue";
+CREATE POLICY "application_queue_delete_policy"
+    ON "public"."application_queue"
+    FOR DELETE
+    USING (true);
+
 GRANT ALL ON TABLE "public"."application_queue" TO "anon";
 GRANT ALL ON TABLE "public"."application_queue" TO "authenticated";
 GRANT ALL ON TABLE "public"."application_queue" TO "service_role";

@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+load_dotenv("jobs-scrapper-web/.env.local")
 
 
 def _clean_env(name: str) -> str | None:
@@ -12,8 +13,8 @@ def _clean_env(name: str) -> str | None:
 # 1. CORE SYSTEM CONFIGURATION
 # =================================================================
 
-SUPABASE_URL: str = _clean_env("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY: str = _clean_env("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_URL: str = _clean_env("SUPABASE_URL") or _clean_env("NEXT_PUBLIC_SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY: str = _clean_env("SUPABASE_SERVICE_ROLE_KEY") or _clean_env("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
 
 SUPABASE_TABLE_NAME: str = "jobs"
 SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME = "customized_resumes"

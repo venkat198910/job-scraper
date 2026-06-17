@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,15 @@ APPLICATION_QUEUE_STORAGE_BUCKET = getattr(config, "SUPABASE_RESUME_STORAGE_BUCK
 APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
+PORTAL_PATTERNS = {
+    "workday": WORKDAY_URL_PATTERN,
+    "greenhouse": re.compile(r"(greenhouse\.io|boards\.greenhouse\.io)", re.IGNORECASE),
+    "lever": re.compile(r"(lever\.co|jobs\.lever\.co)", re.IGNORECASE),
+    "ashby": re.compile(r"(ashbyhq\.com|jobs\.ashbyhq\.com)", re.IGNORECASE),
+    "smartrecruiters": re.compile(r"(smartrecruiters\.com|jobs\.smartrecruiters\.com)", re.IGNORECASE),
+}
+NEXT_BUTTON_TEXT = re.compile(r"^(next|continue|save and continue|review|review application)$", re.IGNORECASE)
+FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply|send application)$", re.IGNORECASE)
 
 
 @dataclass
@@ -41,8 +51,9 @@ def linkedin_job_url(job_id: str) -> str:
 
 
 def detect_portal(apply_url: str, provider: str = "") -> str:
-    if WORKDAY_URL_PATTERN.search(apply_url or ""):
-        return "workday"
+    for portal, pattern in PORTAL_PATTERNS.items():
+        if pattern.search(apply_url or ""):
+            return portal
     if (provider or "").lower() == "linkedin":
         return "linkedin"
     return (provider or "unknown").lower()
@@ -53,6 +64,8 @@ def detect_application_type(job: dict[str, Any]) -> str:
     apply_url = build_apply_url(job)
     if detect_portal(apply_url, provider) == "workday":
         return "workday_profile_review"
+    if detect_portal(apply_url, provider) in {"greenhouse", "lever", "ashby", "smartrecruiters"}:
+        return f"{detect_portal(apply_url, provider)}_review"
     if provider == "linkedin":
         return "linkedin_easy_apply_review"
     return "company_portal_review"
@@ -171,7 +184,102 @@ def download_resume(candidate: ApplicationCandidate) -> Path:
     return output_path
 
 
-async def prepare_linkedin_easy_apply(candidate: ApplicationCandidate, headless: bool = False) -> dict[str, Any]:
+async def _click_first_button(page: Any, pattern: re.Pattern[str], messages: list[str], timeout: int = 5000) -> bool:
+    button = page.get_by_role("button", name=pattern)
+    if await button.count() == 0:
+        return False
+    try:
+        await button.first.click(timeout=timeout)
+        messages.append(f"Clicked button: {pattern.pattern}")
+        return True
+    except Exception as exc:
+        messages.append(f"Detected button but could not click safely: {exc}")
+        return False
+
+
+async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: list[str]) -> bool:
+    file_inputs = page.locator("input[type='file']")
+    if await file_inputs.count() == 0:
+        messages.append("No resume upload input detected on the current step.")
+        return False
+
+    try:
+        await file_inputs.first.set_input_files(str(resume_path))
+        messages.append("Custom resume selected for upload.")
+        return True
+    except Exception as exc:
+        messages.append(f"Resume upload input detected but upload failed safely: {exc}")
+        return False
+
+
+async def _fill_profile_defaults(page: Any, messages: list[str]) -> None:
+    for label, value in _load_profile_defaults().items():
+        await _fill_label_if_present(page, label, value, messages)
+
+
+async def _detect_required_unfilled(page: Any) -> list[str]:
+    labels = []
+    required_controls = page.locator(
+        "input[required], textarea[required], select[required], [aria-required='true']"
+    )
+    count = await required_controls.count()
+    for index in range(min(count, 25)):
+        control = required_controls.nth(index)
+        try:
+            value = await control.input_value(timeout=1000)
+            if value:
+                continue
+        except Exception:
+            pass
+        try:
+            aria_label = await control.get_attribute("aria-label")
+            name = await control.get_attribute("name")
+            control_id = await control.get_attribute("id")
+            labels.append(aria_label or name or control_id or f"required-field-{index + 1}")
+        except Exception:
+            labels.append(f"required-field-{index + 1}")
+    return labels
+
+
+async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any]) -> None:
+    required_unfilled = await _detect_required_unfilled(page)
+    if required_unfilled:
+        result["status"] = "manual_review_required"
+        result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
+        return
+
+    submit = page.get_by_role("button", name=FINAL_SUBMIT_TEXT)
+    if await submit.count() == 0:
+        result["status"] = "manual_review_required"
+        result["messages"].append("No final submit/apply button detected.")
+        return
+
+    if not allow_submit:
+        result["status"] = "manual_review_required"
+        result["messages"].append("Final submit/apply button detected. Submit blocked because --allow-submit was not provided.")
+        return
+
+    await submit.first.click(timeout=10000)
+    result["status"] = "submitted"
+    result["messages"].append("Application submitted because --allow-submit was explicitly provided.")
+
+
+def _update_job_after_submission(candidate: ApplicationCandidate | None, result: dict[str, Any]) -> None:
+    if not candidate or result.get("status") != "submitted":
+        return
+    try:
+        supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME).update(
+            {"status": "applied", "application_date": datetime.now(timezone.utc).isoformat()}
+        ).eq("job_id", candidate.job_id).execute()
+    except Exception as exc:
+        logging.warning("Submitted, but could not update job %s as applied: %s", candidate.job_id, exc)
+
+
+async def prepare_linkedin_easy_apply(
+    candidate: ApplicationCandidate,
+    headless: bool = False,
+    allow_submit: bool = False,
+) -> dict[str, Any]:
     """
     Opens LinkedIn, detects Easy Apply, uploads the custom resume when possible,
     and stops before final submit. This is intentionally manual-review only.
@@ -235,11 +343,17 @@ async def prepare_linkedin_easy_apply(candidate: ApplicationCandidate, headless:
                 await field.first.fill(str(value))
                 result["messages"].append(f"Filled configured answer for: {label}")
 
-        submit_buttons = page.get_by_role("button", name=SAFE_FINAL_SUBMIT_TEXT)
-        if await submit_buttons.count() > 0:
-            result["messages"].append("Final submit button detected. Stopping before submit.")
+        for _ in range(4):
+            if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+                break
+            clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=3000)
+            if not clicked:
+                break
+            await page.wait_for_timeout(1000)
 
-        result["status"] = "manual_review_required"
+        await _maybe_submit(page, allow_submit, result)
+        _update_job_after_submission(candidate, result)
+
         await context.storage_state(path=os.environ.get("LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json"))
         await browser.close()
 
@@ -299,6 +413,7 @@ async def prepare_workday_profile(
     resume_file: str | None = None,
     candidate: ApplicationCandidate | None = None,
     headless: bool = False,
+    allow_submit: bool = False,
 ) -> dict[str, Any]:
     """
     Opens a Workday application/profile page, uploads the selected resume when possible,
@@ -348,21 +463,86 @@ async def prepare_workday_profile(
                 except Exception:
                     result["messages"].append(f"Detected Workday action but could not click safely: {button_name}")
 
-        file_inputs = page.locator("input[type='file']")
-        if await file_inputs.count() > 0:
-            await file_inputs.first.set_input_files(str(resume_path))
-            result["messages"].append("Custom resume selected for Workday upload.")
-        else:
-            result["messages"].append("No Workday file input detected on the current step.")
+        await _upload_resume_if_possible(page, resume_path, result["messages"])
 
         for label, value in profile_defaults.items():
             await _fill_label_if_present(page, label, value, result["messages"])
 
-        final_submit = page.get_by_role("button", name=SAFE_FINAL_SUBMIT_TEXT)
-        if await final_submit.count() > 0:
-            result["messages"].append("Final submit/apply button detected. Stopping before submit.")
+        for _ in range(8):
+            if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+                break
+            clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=5000)
+            if not clicked:
+                break
+            await page.wait_for_timeout(1500)
+            await _upload_resume_if_possible(page, resume_path, result["messages"])
+            await _fill_profile_defaults(page, result["messages"])
+
+        await _maybe_submit(page, allow_submit, result)
+        _update_job_after_submission(candidate, result)
 
         await context.storage_state(path=os.environ.get("WORKDAY_STORAGE_STATE_OUT", "workday_storage_state.json"))
+        await browser.close()
+
+    return result
+
+
+async def prepare_company_portal(
+    apply_url: str,
+    resume_file: str | None = None,
+    candidate: ApplicationCandidate | None = None,
+    headless: bool = False,
+    allow_submit: bool = False,
+) -> dict[str, Any]:
+    portal = detect_portal(apply_url, candidate.provider if candidate else "")
+    if portal == "workday":
+        return await prepare_workday_profile(
+            apply_url=apply_url,
+            resume_file=resume_file,
+            candidate=candidate,
+            headless=headless,
+            allow_submit=allow_submit,
+        )
+
+    from playwright.async_api import async_playwright
+
+    resume_path = _first_existing_resume_path(resume_file, candidate)
+    storage_state = os.environ.get(f"{portal.upper()}_STORAGE_STATE") or os.environ.get("PORTAL_STORAGE_STATE")
+    result = {
+        "job_id": candidate.job_id if candidate else None,
+        "apply_url": apply_url,
+        "resume_path": str(resume_path),
+        "status": "manual_review_required",
+        "portal": portal,
+        "messages": [],
+    }
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=headless)
+        context_options = {}
+        if storage_state and Path(storage_state).exists():
+            context_options["storage_state"] = storage_state
+        context = await browser.new_context(**context_options)
+        page = await context.new_page()
+        await page.goto(apply_url, wait_until="domcontentloaded", timeout=90000)
+
+        await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
+        await _upload_resume_if_possible(page, resume_path, result["messages"])
+        await _fill_profile_defaults(page, result["messages"])
+
+        for _ in range(6):
+            if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+                break
+            clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=4000)
+            if not clicked:
+                break
+            await page.wait_for_timeout(1200)
+            await _upload_resume_if_possible(page, resume_path, result["messages"])
+            await _fill_profile_defaults(page, result["messages"])
+
+        await _maybe_submit(page, allow_submit, result)
+        _update_job_after_submission(candidate, result)
+        await context.storage_state(path=os.environ.get(f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json"))
         await browser.close()
 
     return result
@@ -384,7 +564,14 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare application candidates without auto-submitting.")
     parser.add_argument(
         "--mode",
-        choices=["plan", "queue", "prepare-easy-apply", "prepare-workday-profile"],
+        choices=[
+            "plan",
+            "queue",
+            "prepare-easy-apply",
+            "prepare-workday-profile",
+            "prepare-company-portal",
+            "auto-apply",
+        ],
         default="plan",
     )
     parser.add_argument("--limit", type=int, default=10)
@@ -393,16 +580,33 @@ async def main() -> None:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--apply-url", help="Manual apply URL, useful for Workday/company portals.")
     parser.add_argument("--resume-file", help="Local resume PDF path for manual Workday/company portal preparation.")
+    parser.add_argument(
+        "--allow-submit",
+        action="store_true",
+        help="Explicitly allow final submission when no unknown required fields are detected.",
+    )
     args = parser.parse_args()
 
-    if args.mode == "prepare-workday-profile" and args.apply_url:
-        result = await prepare_workday_profile(
-            apply_url=args.apply_url,
-            resume_file=args.resume_file,
-            headless=args.headless,
-        )
+    if args.mode in {"prepare-workday-profile", "prepare-company-portal"} and args.apply_url:
+        if args.mode == "prepare-workday-profile":
+            result = await prepare_workday_profile(
+                apply_url=args.apply_url,
+                resume_file=args.resume_file,
+                headless=args.headless,
+                allow_submit=args.allow_submit,
+            )
+        else:
+            result = await prepare_company_portal(
+                apply_url=args.apply_url,
+                resume_file=args.resume_file,
+                headless=args.headless,
+                allow_submit=args.allow_submit,
+            )
         print(json.dumps(result, indent=2))
-        print("\nStopped before final submit.")
+        if result.get("status") == "submitted":
+            print("\nSubmitted because --allow-submit was explicitly provided and no unknown required fields were detected.")
+        else:
+            print("\nStopped before final submit.")
         return
 
     provider = None if args.provider == "all" else args.provider
@@ -428,7 +632,39 @@ async def main() -> None:
                 resume_file=args.resume_file,
                 candidate=candidate,
                 headless=args.headless,
+                allow_submit=args.allow_submit,
             )
+            queue_candidate(candidate, status=result["status"])
+            print(json.dumps(result, indent=2))
+            continue
+
+        if args.mode == "prepare-company-portal":
+            if detect_portal(candidate.apply_url, candidate.provider) == "linkedin":
+                logging.info("Skipping LinkedIn candidate %s in company portal mode.", candidate.job_id)
+                continue
+            result = await prepare_company_portal(
+                apply_url=candidate.apply_url,
+                resume_file=args.resume_file,
+                candidate=candidate,
+                headless=args.headless,
+                allow_submit=args.allow_submit,
+            )
+            queue_candidate(candidate, status=result["status"])
+            print(json.dumps(result, indent=2))
+            continue
+
+        if args.mode == "auto-apply":
+            portal = detect_portal(candidate.apply_url, candidate.provider)
+            if portal == "linkedin":
+                result = await prepare_linkedin_easy_apply(candidate, headless=args.headless, allow_submit=args.allow_submit)
+            else:
+                result = await prepare_company_portal(
+                    apply_url=candidate.apply_url,
+                    resume_file=args.resume_file,
+                    candidate=candidate,
+                    headless=args.headless,
+                    allow_submit=args.allow_submit,
+                )
             queue_candidate(candidate, status=result["status"])
             print(json.dumps(result, indent=2))
             continue
@@ -436,11 +672,14 @@ async def main() -> None:
         if candidate.provider != "linkedin":
             logging.info("Skipping non-LinkedIn candidate %s in Easy Apply mode.", candidate.job_id)
             continue
-        result = await prepare_linkedin_easy_apply(candidate, headless=args.headless)
+        result = await prepare_linkedin_easy_apply(candidate, headless=args.headless, allow_submit=args.allow_submit)
         queue_candidate(candidate, status=result["status"])
         print(json.dumps(result, indent=2))
 
-    print("\nStopped before final submit for every candidate.")
+    if args.allow_submit:
+        print("\nSubmit was allowed only where no unknown required fields were detected.")
+    else:
+        print("\nStopped before final submit for every candidate.")
 
 
 if __name__ == "__main__":
