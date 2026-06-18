@@ -18,6 +18,51 @@ DEFAULT_SETTINGS = {
     "minExperience": getattr(config, "LINKEDIN_MIN_EXPERIENCE_YEARS", 6),
     "maxExperience": getattr(config, "LINKEDIN_MAX_EXPERIENCE_YEARS", 12),
     "minScore": 90,
+    "applicationProfile": {
+        "firstName": "Venkateswarlu",
+        "lastName": "Derangula",
+        "fullName": "Venkateswarlu Derangula",
+        "email": "vderangula44@gmail.com",
+        "phone": "+91 7780569119",
+        "linkedinUrl": "https://www.linkedin.com/in/venkateswarlu-derangula/",
+        "githubUrl": "https://github.com/venkat198910/",
+        "currentLocation": "Bengaluru",
+        "addressLine1": "31, KR Puram",
+        "addressCity": "Bengaluru",
+        "addressState": "Karnataka",
+        "addressPostalCode": "560036",
+        "totalExperience": "9.6",
+        "devopsExperience": "7+",
+        "sreExperience": "7+",
+        "cloudExperience": "6+",
+        "kubernetesExperience": "5+",
+        "terraformExperience": "5+",
+        "pythonExperience": "3+",
+    },
+    "applicationAutomation": {
+        "maxJobAgeMinutes": 60,
+        "allowFinalSubmit": False,
+        "allowPortalLogin": False,
+        "headlessBrowser": False,
+    },
+    "applicationAutoAnswers": {
+        "workAuthorization": "No",
+        "needSponsorship": "Yes",
+        "indiaWorkAuthorization": "Yes",
+        "indiaNeedSponsorship": "No",
+        "outsideIndiaWorkAuthorization": "No",
+        "outsideIndiaNeedSponsorship": "Yes",
+        "currentLocation": "Bengaluru",
+        "willingToRelocate": "Yes",
+        "relocateLocations": "Bengaluru, Bangalore, Dubai, Abu Dhabi",
+        "noticePeriod": "30 days",
+        "indiaCurrentCtc": "31 LPA",
+        "indiaExpectedCtc": "50 LPA",
+        "uaeCurrentAnnual": "125000 AED",
+        "uaeCurrentMonthly": "10300 AED",
+        "uaeExpectedAnnual": "300000 AED",
+        "uaeExpectedMonthly": "25000 AED",
+    },
     "advanced": {
         "llmMaxRpm": getattr(config, "LLM_MAX_RPM", 10),
         "llmMaxRetries": getattr(config, "LLM_MAX_RETRIES", 3),
@@ -99,6 +144,11 @@ def _enum_value(value: Any, fallback: str, allowed: set[str]) -> str:
     return text if text in allowed else fallback
 
 
+def _string_value(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
 def normalize_settings(value: Any) -> dict[str, Any]:
     incoming = value if isinstance(value, dict) else {}
     defaults = copy.deepcopy(DEFAULT_SETTINGS)
@@ -115,6 +165,9 @@ def normalize_settings(value: Any) -> dict[str, Any]:
         _bounded_int(incoming.get("maxExperience"), defaults["maxExperience"], 0, 50),
     )
     incoming_advanced = incoming.get("advanced") if isinstance(incoming.get("advanced"), dict) else {}
+    incoming_profile = incoming.get("applicationProfile") if isinstance(incoming.get("applicationProfile"), dict) else {}
+    incoming_automation = incoming.get("applicationAutomation") if isinstance(incoming.get("applicationAutomation"), dict) else {}
+    incoming_auto_answers = incoming.get("applicationAutoAnswers") if isinstance(incoming.get("applicationAutoAnswers"), dict) else {}
 
     return {
         "locations": _clean_string_list(incoming.get("locations"), defaults["locations"]),
@@ -128,6 +181,40 @@ def normalize_settings(value: Any) -> dict[str, Any]:
         "minExperience": min_experience,
         "maxExperience": max_experience,
         "minScore": _bounded_int(incoming.get("minScore"), defaults["minScore"], 0, 100),
+        "applicationProfile": {
+            key: _string_value(incoming_profile.get(key), default_value)
+            for key, default_value in defaults["applicationProfile"].items()
+        },
+        "applicationAutomation": {
+            "maxJobAgeMinutes": _bounded_int(
+                incoming_automation.get("maxJobAgeMinutes"),
+                defaults["applicationAutomation"]["maxJobAgeMinutes"],
+                1,
+                1440,
+            ),
+            "allowFinalSubmit": bool(
+                incoming_automation.get(
+                    "allowFinalSubmit",
+                    defaults["applicationAutomation"]["allowFinalSubmit"],
+                )
+            ),
+            "allowPortalLogin": bool(
+                incoming_automation.get(
+                    "allowPortalLogin",
+                    defaults["applicationAutomation"]["allowPortalLogin"],
+                )
+            ),
+            "headlessBrowser": bool(
+                incoming_automation.get(
+                    "headlessBrowser",
+                    defaults["applicationAutomation"]["headlessBrowser"],
+                )
+            ),
+        },
+        "applicationAutoAnswers": {
+            key: _string_value(incoming_auto_answers.get(key), default_value)
+            for key, default_value in defaults["applicationAutoAnswers"].items()
+        },
         "advanced": {
             "llmMaxRpm": _bounded_int(incoming_advanced.get("llmMaxRpm"), defaults["advanced"]["llmMaxRpm"], 1, 120),
             "llmMaxRetries": _bounded_int(incoming_advanced.get("llmMaxRetries"), defaults["advanced"]["llmMaxRetries"], 0, 10),
@@ -243,6 +330,104 @@ def get_experience_range() -> tuple[int, int, bool]:
 
 def get_min_score() -> int:
     return get_app_settings()["minScore"]
+
+
+def get_application_profile() -> dict[str, str]:
+    return get_app_settings()["applicationProfile"]
+
+
+def get_application_automation() -> dict[str, Any]:
+    return get_app_settings()["applicationAutomation"]
+
+
+def get_application_auto_answers() -> dict[str, str]:
+    return get_app_settings()["applicationAutoAnswers"]
+
+
+def get_application_auto_answer_defaults() -> dict[str, str]:
+    answers = get_application_auto_answers()
+    profile = get_application_profile()
+
+    return {
+        "Work Authorization": answers.get("workAuthorization", ""),
+        "Are you authorized to work": answers.get("workAuthorization", ""),
+        "Are you legally authorized to work": answers.get("workAuthorization", ""),
+        "Need Sponsorship": answers.get("needSponsorship", ""),
+        "Do you need sponsorship": answers.get("needSponsorship", ""),
+        "Do you require sponsorship": answers.get("needSponsorship", ""),
+        "Visa Sponsorship": answers.get("needSponsorship", ""),
+        "India Work Authorization": answers.get("indiaWorkAuthorization", ""),
+        "India Sponsorship": answers.get("indiaNeedSponsorship", ""),
+        "Outside India Work Authorization": answers.get("outsideIndiaWorkAuthorization", ""),
+        "Outside India Sponsorship": answers.get("outsideIndiaNeedSponsorship", ""),
+        "Current Location": answers.get("currentLocation", profile.get("currentLocation", "")),
+        "Willing to Relocate": answers.get("willingToRelocate", ""),
+        "Relocation": answers.get("willingToRelocate", ""),
+        "Preferred Relocation Locations": answers.get("relocateLocations", ""),
+        "Notice Period": answers.get("noticePeriod", ""),
+        "Availability": answers.get("noticePeriod", ""),
+        "Total Experience": profile.get("totalExperience", ""),
+        "Years of Experience": profile.get("totalExperience", ""),
+        "DevOps Experience": profile.get("devopsExperience", ""),
+        "SRE Experience": profile.get("sreExperience", ""),
+        "AWS Experience": profile.get("cloudExperience", ""),
+        "Cloud Experience": profile.get("cloudExperience", ""),
+        "Kubernetes Experience": profile.get("kubernetesExperience", ""),
+        "Terraform Experience": profile.get("terraformExperience", ""),
+        "Python Experience": profile.get("pythonExperience", ""),
+        "Current CTC": answers.get("indiaCurrentCtc", ""),
+        "Expected CTC": answers.get("indiaExpectedCtc", ""),
+        "Current Salary": answers.get("indiaCurrentCtc", ""),
+        "Expected Salary": answers.get("indiaExpectedCtc", ""),
+        "UAE Current Annual Salary": answers.get("uaeCurrentAnnual", ""),
+        "UAE Current Monthly Salary": answers.get("uaeCurrentMonthly", ""),
+        "UAE Expected Annual Salary": answers.get("uaeExpectedAnnual", ""),
+        "UAE Expected Monthly Salary": answers.get("uaeExpectedMonthly", ""),
+    }
+
+
+def get_application_profile_defaults() -> dict[str, str]:
+    profile = get_application_profile()
+    address_parts = [
+        profile.get("addressLine1", ""),
+        profile.get("addressCity", ""),
+        profile.get("addressState", ""),
+        profile.get("addressPostalCode", ""),
+    ]
+    address = "\n".join(part for part in address_parts if part)
+
+    return {
+        "First Name": profile.get("firstName", ""),
+        "Last Name": profile.get("lastName", ""),
+        "Full Name": profile.get("fullName", ""),
+        "Name": profile.get("fullName", ""),
+        "Email": profile.get("email", ""),
+        "Email Address": profile.get("email", ""),
+        "Phone": profile.get("phone", ""),
+        "Mobile": profile.get("phone", ""),
+        "Mobile Phone": profile.get("phone", ""),
+        "LinkedIn": profile.get("linkedinUrl", ""),
+        "LinkedIn Profile": profile.get("linkedinUrl", ""),
+        "GitHub": profile.get("githubUrl", ""),
+        "GitHub Profile": profile.get("githubUrl", ""),
+        "Current Location": profile.get("currentLocation", ""),
+        "Location": profile.get("currentLocation", ""),
+        "Address": address,
+        "Street Address": profile.get("addressLine1", ""),
+        "City": profile.get("addressCity", ""),
+        "State": profile.get("addressState", ""),
+        "Postal Code": profile.get("addressPostalCode", ""),
+        "Zip Code": profile.get("addressPostalCode", ""),
+        "Total Experience": profile.get("totalExperience", ""),
+        "Years of Experience": profile.get("totalExperience", ""),
+        "DevOps Experience": profile.get("devopsExperience", ""),
+        "SRE Experience": profile.get("sreExperience", ""),
+        "AWS/Cloud Experience": profile.get("cloudExperience", ""),
+        "Cloud Experience": profile.get("cloudExperience", ""),
+        "Kubernetes Experience": profile.get("kubernetesExperience", ""),
+        "Terraform Experience": profile.get("terraformExperience", ""),
+        "Python Experience": profile.get("pythonExperience", ""),
+    }
 
 
 def is_auto_resume_enabled() -> bool:

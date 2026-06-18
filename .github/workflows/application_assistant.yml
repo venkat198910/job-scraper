@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Safe mode to run. This workflow intentionally does not submit applications."
+        description: "Application assistant mode"
         required: true
         default: "plan"
         type: choice
@@ -12,6 +12,10 @@ on:
           - plan
           - queue
           - plan-all-portals
+          - prepare-easy-apply
+          - prepare-workday-profile
+          - prepare-company-portal
+          - auto-apply
       min_score:
         description: "Minimum score for application candidates"
         required: true
@@ -20,6 +24,29 @@ on:
         description: "Maximum candidates to inspect"
         required: true
         default: "10"
+      provider:
+        description: "Provider scope"
+        required: true
+        default: "linkedin"
+        type: choice
+        options:
+          - linkedin
+          - all
+      headless:
+        description: "Run browser headless"
+        required: true
+        default: false
+        type: boolean
+      allow_login:
+        description: "Allow filling company portal login using configured secrets"
+        required: true
+        default: false
+        type: boolean
+      allow_submit:
+        description: "Allow final submit when no unknown required fields are detected"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   application_assistant:
@@ -42,15 +69,27 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APPLICATION_PORTAL_PASSWORD: ${{ secrets.APPLICATION_PORTAL_PASSWORD }}
         run: |
-          PROVIDER="linkedin"
+          PROVIDER="${{ inputs.provider }}"
           MODE="${{ inputs.mode }}"
           if [ "$MODE" = "plan-all-portals" ]; then
             MODE="plan"
             PROVIDER="all"
           fi
-          python application_assistant.py \
-            --mode "$MODE" \
-            --provider "$PROVIDER" \
-            --min-score "${{ inputs.min_score }}" \
+          ARGS=(
+            --mode "$MODE"
+            --provider "$PROVIDER"
+            --min-score "${{ inputs.min_score }}"
             --limit "${{ inputs.limit }}"
+          )
+          if [ "${{ inputs.headless }}" = "true" ]; then
+            ARGS+=(--headless)
+          fi
+          if [ "${{ inputs.allow_login }}" = "true" ]; then
+            ARGS+=(--allow-login)
+          fi
+          if [ "${{ inputs.allow_submit }}" = "true" ]; then
+            ARGS+=(--allow-submit)
+          fi
+          python application_assistant.py "${ARGS[@]}"

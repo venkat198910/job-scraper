@@ -197,6 +197,60 @@ async def _click_first_button(page: Any, pattern: re.Pattern[str], messages: lis
         return False
 
 
+async def _launch_chromium(playwright: Any, headless: bool) -> Any:
+    cdp_url = os.environ.get("PLAYWRIGHT_CDP_URL", "").strip()
+    if cdp_url:
+        return await playwright.chromium.connect_over_cdp(cdp_url)
+
+    launch_options: dict[str, Any] = {"headless": headless}
+    executable_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "").strip()
+    if executable_path:
+        launch_options["executable_path"] = executable_path
+    return await playwright.chromium.launch(**launch_options)
+
+
+async def _save_context_state(context: Any, env_key: str, default_path: str) -> str:
+    state_path = os.environ.get(env_key, default_path)
+    await context.storage_state(path=state_path)
+    return state_path
+
+
+async def _page_has_button(page: Any, pattern: re.Pattern[str]) -> bool:
+    return await page.get_by_role("button", name=pattern).count() > 0
+
+
+async def _linkedin_login_visible(page: Any) -> bool:
+    if "login" in page.url.lower() or "uas/login" in page.url.lower():
+        return True
+    try:
+        if await page.get_by_role("link", name=re.compile(r"^sign in$", re.IGNORECASE)).count() > 0:
+            return True
+        if await page.get_by_role("button", name=re.compile(r"^sign in$", re.IGNORECASE)).count() > 0:
+            return True
+    except Exception:
+        return False
+    return False
+
+
+async def _wait_for_manual_linkedin_login(page: Any, context: Any, result: dict[str, Any], wait_seconds: int) -> bool:
+    if wait_seconds <= 0:
+        result["messages"].append("LinkedIn login required. Run again with --manual-login-wait after opening Chrome, then log in once.")
+        return False
+
+    result["messages"].append(f"Waiting up to {wait_seconds}s for manual LinkedIn login.")
+    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=60000)
+    deadline = datetime.now(timezone.utc).timestamp() + wait_seconds
+    while datetime.now(timezone.utc).timestamp() < deadline:
+        await page.wait_for_timeout(2000)
+        if not await _linkedin_login_visible(page):
+            state_path = await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+            result["messages"].append(f"LinkedIn session saved to {state_path}. Set LINKEDIN_STORAGE_STATE to this path for scheduled runs.")
+            return True
+
+    result["messages"].append("Manual LinkedIn login was not completed before the wait timeout.")
+    return False
+
+
 async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: list[str]) -> bool:
     file_inputs = page.locator("input[type='file']")
     if await file_inputs.count() == 0:
@@ -215,6 +269,50 @@ async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: lis
 async def _fill_profile_defaults(page: Any, messages: list[str]) -> None:
     for label, value in _load_profile_defaults().items():
         await _fill_label_if_present(page, label, value, messages)
+
+
+async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: list[str]) -> bool:
+    if not allow_login:
+        messages.append("Portal login was detected or possible, but login is disabled. Enable it in settings or pass --allow-login.")
+        return False
+
+    email = (
+        os.environ.get("APPLICATION_PORTAL_EMAIL")
+        or os.environ.get("APPLICATION_EMAIL")
+        or app_settings.get_application_profile().get("email")
+        or ""
+    )
+    password = os.environ.get("APPLICATION_PORTAL_PASSWORD", "")
+    if not email or not password:
+        messages.append("Portal login is allowed, but APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD is not fully configured.")
+        return False
+
+    email_inputs = page.locator(
+        "input[type='email'], input[name*='email' i], input[id*='email' i], input[autocomplete='username']"
+    )
+    password_inputs = page.locator(
+        "input[type='password'], input[name*='password' i], input[id*='password' i], input[autocomplete='current-password']"
+    )
+
+    filled_any = False
+    if await email_inputs.count() > 0:
+        await email_inputs.first.fill(email, timeout=3000)
+        messages.append("Filled portal email.")
+        filled_any = True
+    if await password_inputs.count() > 0:
+        await password_inputs.first.fill(password, timeout=3000)
+        messages.append("Filled portal password.")
+        filled_any = True
+
+    if not filled_any:
+        return False
+
+    sign_in_button = page.get_by_role("button", name=re.compile(r"^(sign in|log in|login|continue)$", re.IGNORECASE))
+    if await sign_in_button.count() > 0:
+        await sign_in_button.first.click(timeout=5000)
+        messages.append("Clicked portal login/continue.")
+        await page.wait_for_timeout(2000)
+    return True
 
 
 async def _detect_required_unfilled(page: Any) -> list[str]:
@@ -279,6 +377,7 @@ async def prepare_linkedin_easy_apply(
     candidate: ApplicationCandidate,
     headless: bool = False,
     allow_submit: bool = False,
+    manual_login_wait: int = 0,
 ) -> dict[str, Any]:
     """
     Opens LinkedIn, detects Easy Apply, uploads the custom resume when possible,
@@ -289,8 +388,14 @@ async def prepare_linkedin_easy_apply(
 
     resume_path = download_resume(candidate)
     storage_state = os.environ.get("LINKEDIN_STORAGE_STATE")
-    phone_number = os.environ.get("APPLICATION_PHONE", "")
-    default_answers = json.loads(os.environ.get("APPLICATION_DEFAULT_ANSWERS_JSON", "{}") or "{}")
+    phone_number = (
+        os.environ.get("APPLICATION_PHONE")
+        or app_settings.get_application_profile().get("phone")
+        or ""
+    )
+    default_answers = app_settings.get_application_auto_answer_defaults()
+    env_default_answers = json.loads(os.environ.get("APPLICATION_DEFAULT_ANSWERS_JSON", "{}") or "{}")
+    default_answers.update({str(key): str(value) for key, value in env_default_answers.items()})
 
     result = {
         "job_id": candidate.job_id,
@@ -301,7 +406,7 @@ async def prepare_linkedin_easy_apply(
     }
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless)
+        browser = await _launch_chromium(playwright, headless=headless)
         context_options = {}
         if storage_state and Path(storage_state).exists():
             context_options["storage_state"] = storage_state
@@ -309,8 +414,18 @@ async def prepare_linkedin_easy_apply(
         page = await context.new_page()
         await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=60000)
 
-        if "login" in page.url.lower():
-            result["messages"].append("LinkedIn login required. Set LINKEDIN_STORAGE_STATE after logging in once.")
+        if await _linkedin_login_visible(page):
+            if await _wait_for_manual_linkedin_login(page, context, result, manual_login_wait):
+                await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=60000)
+            else:
+                result["status"] = "login_required"
+                await browser.close()
+                return result
+
+        if await _page_has_button(page, re.compile(r"^Apply$", re.IGNORECASE)):
+            result["status"] = "external_apply"
+            result["messages"].append("LinkedIn shows a normal Apply button, not Easy Apply.")
+            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
             await browser.close()
             return result
 
@@ -318,7 +433,13 @@ async def prepare_linkedin_easy_apply(
             easy_apply = page.get_by_role("button", name=re.compile("Easy Apply", re.IGNORECASE)).first
             await easy_apply.click(timeout=15000)
         except PlaywrightTimeoutError:
-            result["messages"].append("Easy Apply button was not detected.")
+            if await _linkedin_login_visible(page):
+                result["status"] = "login_required"
+                result["messages"].append("LinkedIn sign-in prompt is visible, so Easy Apply cannot be prepared yet.")
+            else:
+                result["status"] = "not_easy_apply"
+                result["messages"].append("Easy Apply button was not detected.")
+            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
             await browser.close()
             return result
 
@@ -354,7 +475,7 @@ async def prepare_linkedin_easy_apply(
         await _maybe_submit(page, allow_submit, result)
         _update_job_after_submission(candidate, result)
 
-        await context.storage_state(path=os.environ.get("LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json"))
+        await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
         await browser.close()
 
     return result
@@ -374,6 +495,7 @@ def _first_existing_resume_path(resume_file: str | None, candidate: ApplicationC
 
 
 def _load_profile_defaults() -> dict[str, str]:
+    defaults = app_settings.get_application_profile_defaults()
     profile_json = os.environ.get("APPLICATION_PROFILE_JSON", "{}") or "{}"
     try:
         profile = json.loads(profile_json)
@@ -391,8 +513,16 @@ def _load_profile_defaults() -> dict[str, str]:
         "Country": os.environ.get("APPLICATION_COUNTRY", ""),
         "LinkedIn Profile": os.environ.get("APPLICATION_LINKEDIN", ""),
     }
-    env_defaults.update({str(key): str(value) for key, value in profile.items() if value})
-    return {key: value for key, value in env_defaults.items() if value}
+    env_defaults = {key: value for key, value in env_defaults.items() if value}
+    defaults.update(env_defaults)
+    defaults.update(
+        {
+            str(key): str(value)
+            for key, value in profile.items()
+            if value
+        }
+    )
+    return {key: value for key, value in defaults.items() if value}
 
 
 async def _fill_label_if_present(page: Any, label: str, value: str, messages: list[str]) -> None:
@@ -414,6 +544,7 @@ async def prepare_workday_profile(
     candidate: ApplicationCandidate | None = None,
     headless: bool = False,
     allow_submit: bool = False,
+    allow_login: bool = False,
 ) -> dict[str, Any]:
     """
     Opens a Workday application/profile page, uploads the selected resume when possible,
@@ -437,7 +568,7 @@ async def prepare_workday_profile(
     }
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless)
+        browser = await _launch_chromium(playwright, headless=headless)
         context_options = {}
         if storage_state and Path(storage_state).exists():
             context_options["storage_state"] = storage_state
@@ -447,6 +578,7 @@ async def prepare_workday_profile(
 
         if re.search(r"sign\s*in|login|create\s*account", await page.content(), re.IGNORECASE):
             result["messages"].append("Workday login/create-account step detected. Complete it manually first.")
+            await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
 
         for button_name in [
             r"Apply",
@@ -493,6 +625,7 @@ async def prepare_company_portal(
     candidate: ApplicationCandidate | None = None,
     headless: bool = False,
     allow_submit: bool = False,
+    allow_login: bool = False,
 ) -> dict[str, Any]:
     portal = detect_portal(apply_url, candidate.provider if candidate else "")
     if portal == "workday":
@@ -502,6 +635,7 @@ async def prepare_company_portal(
             candidate=candidate,
             headless=headless,
             allow_submit=allow_submit,
+            allow_login=allow_login,
         )
 
     from playwright.async_api import async_playwright
@@ -518,13 +652,14 @@ async def prepare_company_portal(
     }
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless)
+        browser = await _launch_chromium(playwright, headless=headless)
         context_options = {}
         if storage_state and Path(storage_state).exists():
             context_options["storage_state"] = storage_state
         context = await browser.new_context(**context_options)
         page = await context.new_page()
         await page.goto(apply_url, wait_until="domcontentloaded", timeout=90000)
+        await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
 
         await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
         await _upload_resume_if_possible(page, resume_path, result["messages"])
@@ -585,22 +720,39 @@ async def main() -> None:
         action="store_true",
         help="Explicitly allow final submission when no unknown required fields are detected.",
     )
+    parser.add_argument(
+        "--allow-login",
+        action="store_true",
+        help="Allow filling and submitting portal login forms using APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD.",
+    )
+    parser.add_argument(
+        "--manual-login-wait",
+        type=int,
+        default=0,
+        help="For LinkedIn, wait this many seconds for you to complete manual login and save storage state.",
+    )
     args = parser.parse_args()
+    automation_settings = app_settings.get_application_automation()
+    effective_headless = args.headless or bool(automation_settings.get("headlessBrowser"))
+    effective_allow_submit = args.allow_submit or bool(automation_settings.get("allowFinalSubmit"))
+    effective_allow_login = args.allow_login or bool(automation_settings.get("allowPortalLogin"))
 
     if args.mode in {"prepare-workday-profile", "prepare-company-portal"} and args.apply_url:
         if args.mode == "prepare-workday-profile":
             result = await prepare_workday_profile(
                 apply_url=args.apply_url,
                 resume_file=args.resume_file,
-                headless=args.headless,
-                allow_submit=args.allow_submit,
+                headless=effective_headless,
+                allow_submit=effective_allow_submit,
+                allow_login=effective_allow_login,
             )
         else:
             result = await prepare_company_portal(
                 apply_url=args.apply_url,
                 resume_file=args.resume_file,
-                headless=args.headless,
-                allow_submit=args.allow_submit,
+                headless=effective_headless,
+                allow_submit=effective_allow_submit,
+                allow_login=effective_allow_login,
             )
         print(json.dumps(result, indent=2))
         if result.get("status") == "submitted":
@@ -631,8 +783,9 @@ async def main() -> None:
                 apply_url=candidate.apply_url,
                 resume_file=args.resume_file,
                 candidate=candidate,
-                headless=args.headless,
-                allow_submit=args.allow_submit,
+                headless=effective_headless,
+                allow_submit=effective_allow_submit,
+                allow_login=effective_allow_login,
             )
             queue_candidate(candidate, status=result["status"])
             print(json.dumps(result, indent=2))
@@ -646,8 +799,9 @@ async def main() -> None:
                 apply_url=candidate.apply_url,
                 resume_file=args.resume_file,
                 candidate=candidate,
-                headless=args.headless,
-                allow_submit=args.allow_submit,
+                headless=effective_headless,
+                allow_submit=effective_allow_submit,
+                allow_login=effective_allow_login,
             )
             queue_candidate(candidate, status=result["status"])
             print(json.dumps(result, indent=2))
@@ -656,14 +810,20 @@ async def main() -> None:
         if args.mode == "auto-apply":
             portal = detect_portal(candidate.apply_url, candidate.provider)
             if portal == "linkedin":
-                result = await prepare_linkedin_easy_apply(candidate, headless=args.headless, allow_submit=args.allow_submit)
+                result = await prepare_linkedin_easy_apply(
+                    candidate,
+                    headless=effective_headless,
+                    allow_submit=effective_allow_submit,
+                    manual_login_wait=args.manual_login_wait,
+                )
             else:
                 result = await prepare_company_portal(
                     apply_url=candidate.apply_url,
                     resume_file=args.resume_file,
                     candidate=candidate,
-                    headless=args.headless,
-                    allow_submit=args.allow_submit,
+                    headless=effective_headless,
+                    allow_submit=effective_allow_submit,
+                    allow_login=effective_allow_login,
                 )
             queue_candidate(candidate, status=result["status"])
             print(json.dumps(result, indent=2))
@@ -672,11 +832,16 @@ async def main() -> None:
         if candidate.provider != "linkedin":
             logging.info("Skipping non-LinkedIn candidate %s in Easy Apply mode.", candidate.job_id)
             continue
-        result = await prepare_linkedin_easy_apply(candidate, headless=args.headless, allow_submit=args.allow_submit)
+        result = await prepare_linkedin_easy_apply(
+            candidate,
+            headless=effective_headless,
+            allow_submit=effective_allow_submit,
+            manual_login_wait=args.manual_login_wait,
+        )
         queue_candidate(candidate, status=result["status"])
         print(json.dumps(result, indent=2))
 
-    if args.allow_submit:
+    if effective_allow_submit:
         print("\nSubmit was allowed only where no unknown required fields were detected.")
     else:
         print("\nStopped before final submit for every candidate.")
