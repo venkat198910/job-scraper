@@ -3,7 +3,7 @@ name: Resume Customization
 on:
   schedule:
     # Runs hourly, 10 minutes after scoring, and only customizes eligible scored jobs.
-    - cron: "20 * * * *"
+    - cron: "23 * * * *"
   workflow_dispatch: # Allows manual triggering from the Actions tab in GitHub
 
 concurrency:
