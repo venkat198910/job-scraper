@@ -1,25 +1,36 @@
-# .github/workflows/score_jobs.yml
-name: Job Scorer
+name: Hourly Job Pipeline
 
 on:
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  schedule:
+    # GitHub cron is UTC. Runs every hour at :03, then waits 10 minutes
+    # between discovery, scoring, and resume customization.
+    - cron: '3 * * * *'
+  workflow_dispatch:
 
 concurrency:
-  group: hourly-job-scoring
+  group: hourly-job-pipeline
   cancel-in-progress: false
 
 jobs:
-  score:
-    runs-on: ubuntu-latest # Use a standard Linux runner
+  pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - name: Checkout repository code
-        uses: actions/checkout@v4 # Checks out your code
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11" # Specify your desired Python version
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -27,11 +38,6 @@ jobs:
           pip install -r requirements.txt
 
       - name: Validate LLM secrets
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python - <<'PY'
           import os
@@ -63,14 +69,17 @@ jobs:
           print("LLM secret names and key formats look valid.")
           PY
 
-      - name: Run job scoring script
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # LLM Configuration (set via Repository Variables / Secrets)
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python score_jobs.py # Execute the job scoring script
+      - name: Run job scraper
+        run: python scraper.py
 
+      - name: Wait before scoring
+        run: sleep 600
+
+      - name: Run job scorer
+        run: python score_jobs.py
+
+      - name: Wait before resume customization
+        run: sleep 600
+
+      - name: Run resume customization
+        run: python custom_resume_generator.py
