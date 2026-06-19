@@ -138,6 +138,23 @@ LINKEDIN_MIN_EXPERIENCE_YEARS = 6
 LINKEDIN_MAX_EXPERIENCE_YEARS = 12
 LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH = True
 
+# Local title/domain guard. Broad searches like "Cloud Engineer" can return
+# data engineering jobs; skip them before saving/scoring.
+EXCLUDED_JOB_TITLE_KEYWORDS = [
+    "data engineer",
+    "cloud data engineer",
+    "big data",
+    "data platform",
+    "data pipeline",
+    "etl",
+    "analytics engineer",
+    "bi engineer",
+    "business intelligence",
+    "data warehouse",
+    "snowflake",
+    "databricks",
+]
+
 # Date Filter
 # r86400 = Past 24h
 # r604800 = Past week

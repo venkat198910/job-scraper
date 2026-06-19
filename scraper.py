@@ -107,6 +107,18 @@ def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
 
     return any(min_years <= low <= max_years and high <= max_years for low, high in ranges)
 
+def _job_matches_excluded_title_keywords(job_details: dict) -> bool:
+    """Return True when a broad search result is clearly outside target roles."""
+    excluded_keywords = getattr(config, "EXCLUDED_JOB_TITLE_KEYWORDS", [])
+    if not excluded_keywords:
+        return False
+
+    title = (job_details.get("job_title") or "").lower()
+    if not title:
+        return False
+
+    return any(keyword.lower() in title for keyword in excluded_keywords)
+
 def _get_careers_future_job_company_name(job_item: dict) -> str | None:
     """Helper to extract company name, preferring hiringCompany."""
     if not isinstance(job_item, dict):
@@ -460,6 +472,13 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
         if details:
             description = details.get('description')
             if description and description.strip(): 
+                if _job_matches_excluded_title_keywords(details):
+                    logging.info(
+                        "Skipping job ID %s because title '%s' matches excluded keywords.",
+                        job_id,
+                        details.get("job_title"),
+                    )
+                    continue
                 if not _linkedin_job_matches_experience_range(details):
                     logging.info(
                         "Skipping job ID %s because requested experience is outside %s-%s years.",
@@ -756,6 +775,13 @@ def process_careers_future_query(search_query: str, limit: int = None) -> list:
             # --- NEW: Check for description before adding ---
             description = details.get('description')
             if description and description.strip(): # Ensure it's not None or an empty/whitespace string
+                if _job_matches_excluded_title_keywords(details):
+                    logging.info(
+                        "Skipping job ID %s because title '%s' matches excluded keywords.",
+                        job_id,
+                        details.get("job_title"),
+                    )
+                    continue
                 if 'job_id' in details and details['job_id'] is not None:
                     detailed_new_jobs.append(details)
                     processed_count += 1
