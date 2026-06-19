@@ -23,6 +23,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      LINKEDIN_STORAGE_STATE_JSON: ${{ secrets.LINKEDIN_STORAGE_STATE_JSON }}
+      APPLICATION_DEFAULT_ANSWERS_JSON: ${{ secrets.APPLICATION_DEFAULT_ANSWERS_JSON }}
 
     steps:
     - name: Checkout repository code
@@ -84,3 +86,9 @@ jobs:
 
     - name: Run resume customization
       run: python custom_resume_generator.py
+
+    - name: Install Playwright browser
+      run: python -m playwright install --with-deps chromium
+
+    - name: Run LinkedIn Easy Apply assistant
+      run: python application_assistant.py --mode auto-apply --provider linkedin --limit 5 --min-score 90 --headless

@@ -44,6 +44,8 @@ class ApplicationCandidate:
     resume_link: str
     apply_url: str
     application_type: str
+    scraped_at: str = ""
+    posted_at: str = ""
 
 
 def linkedin_job_url(job_id: str) -> str:
@@ -119,10 +121,30 @@ def fetch_candidates(limit: int, min_score: int, provider: str | None = "linkedi
                 resume_link=str(job["resume_link"]),
                 apply_url=build_apply_url(job),
                 application_type=application_type,
+                scraped_at=str(job.get("scraped_at") or ""),
+                posted_at=str(job.get("posted_at") or ""),
             )
         )
 
     return candidates
+
+
+def _write_json_env_to_file(env_key: str, output_path: str) -> str | None:
+    value = os.environ.get(env_key, "").strip()
+    if not value:
+        return None
+
+    path = Path(output_path)
+    path.write_text(value, encoding="utf-8")
+    return str(path)
+
+
+def _linkedin_storage_state_path() -> str | None:
+    storage_state = os.environ.get("LINKEDIN_STORAGE_STATE")
+    if storage_state and Path(storage_state).exists():
+        return storage_state
+
+    return _write_json_env_to_file("LINKEDIN_STORAGE_STATE_JSON", "linkedin_storage_state.json")
 
 
 def queue_candidate(candidate: ApplicationCandidate, status: str = "application_ready") -> bool:
@@ -387,7 +409,7 @@ async def prepare_linkedin_easy_apply(
     from playwright.async_api import async_playwright
 
     resume_path = download_resume(candidate)
-    storage_state = os.environ.get("LINKEDIN_STORAGE_STATE")
+    storage_state = _linkedin_storage_state_path()
     phone_number = (
         os.environ.get("APPLICATION_PHONE")
         or app_settings.get_application_profile().get("phone")
@@ -809,23 +831,16 @@ async def main() -> None:
             continue
 
         if args.mode == "auto-apply":
-            portal = detect_portal(candidate.apply_url, candidate.provider)
-            if portal == "linkedin":
-                result = await prepare_linkedin_easy_apply(
-                    candidate,
-                    headless=effective_headless,
-                    allow_submit=effective_allow_submit,
-                    manual_login_wait=args.manual_login_wait,
-                )
-            else:
-                result = await prepare_company_portal(
-                    apply_url=candidate.apply_url,
-                    resume_file=args.resume_file,
-                    candidate=candidate,
-                    headless=effective_headless,
-                    allow_submit=effective_allow_submit,
-                    allow_login=effective_allow_login,
-                )
+            if detect_portal(candidate.apply_url, candidate.provider) != "linkedin":
+                logging.info("Skipping non-LinkedIn candidate %s in auto-apply mode.", candidate.job_id)
+                queue_candidate(candidate, status="company_portal_review")
+                continue
+            result = await prepare_linkedin_easy_apply(
+                candidate,
+                headless=effective_headless,
+                allow_submit=effective_allow_submit,
+                manual_login_wait=args.manual_login_wait,
+            )
             queue_candidate(candidate, status=result["status"])
             print(json.dumps(result, indent=2))
             continue
