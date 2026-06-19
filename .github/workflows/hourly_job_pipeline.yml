@@ -4,7 +4,7 @@ on:
   schedule:
   # GitHub cron is UTC. Runs every hour at :03, then waits 10 minutes
   # between discovery, scoring, and resume customization.
-  - cron: '3 * * * *'
+  - cron: '0 */2 * * *'
   workflow_dispatch:
 
 
