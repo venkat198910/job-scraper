@@ -1,5 +1,5 @@
 # .github/workflows/job_manager.yml
-name: Job Manager
+name: Daily Job Manager
 
 on:
   schedule:

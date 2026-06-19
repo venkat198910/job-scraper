@@ -2,10 +2,11 @@ name: Hourly Job Pipeline
 
 on:
   schedule:
-    # GitHub cron is UTC. Runs every hour at :03, then waits 10 minutes
-    # between discovery, scoring, and resume customization.
-    - cron: '3 * * * *'
+  # GitHub cron is UTC. Runs every hour at :03, then waits 10 minutes
+  # between discovery, scoring, and resume customization.
+  - cron: '3 * * * *'
   workflow_dispatch:
+
 
 concurrency:
   group: hourly-job-pipeline
@@ -24,62 +25,62 @@ jobs:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
-      - name: Checkout repository code
-        uses: actions/checkout@v4
+    - name: Checkout repository code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Validate LLM secrets
-        run: |
-          python - <<'PY'
-          import os
-          import sys
+    - name: Validate LLM secrets
+      run: |
+        python - <<'PY'
+        import os
+        import sys
 
-          checks = [
-              ("GEMINI_API_KEY", "AIza", "Gemini"),
-              ("OPENAI_API_KEY", "sk-", "OpenAI"),
-              ("ANTHROPIC_API_KEY", "sk-ant-", "Anthropic"),
-              ("GROQ_API_KEY", "gsk_", "Groq"),
-          ]
-          errors = []
-          for name, prefix, provider in checks:
-              value = (os.environ.get(name) or "").strip()
-              if value and not value.startswith(prefix):
-                  errors.append(f"{name} is set but does not look like a {provider} key.")
+        checks = [
+            ("GEMINI_API_KEY", "AIza", "Gemini"),
+            ("OPENAI_API_KEY", "sk-", "OpenAI"),
+            ("ANTHROPIC_API_KEY", "sk-ant-", "Anthropic"),
+            ("GROQ_API_KEY", "gsk_", "Groq"),
+        ]
+        errors = []
+        for name, prefix, provider in checks:
+            value = (os.environ.get(name) or "").strip()
+            if value and not value.startswith(prefix):
+                errors.append(f"{name} is set but does not look like a {provider} key.")
 
-          if errors:
-              print("Invalid LLM secret configuration:")
-              for error in errors:
-                  print(f"- {error}")
-              print("Fix the repository secret value under Settings > Secrets and variables > Actions.")
-              sys.exit(1)
+        if errors:
+            print("Invalid LLM secret configuration:")
+            for error in errors:
+                print(f"- {error}")
+            print("Fix the repository secret value under Settings > Secrets and variables > Actions.")
+            sys.exit(1)
 
-          if not any(os.environ.get(name) for name, _, _ in checks):
-              print("At least one LLM provider secret is required: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY.")
-              sys.exit(1)
+        if not any(os.environ.get(name) for name, _, _ in checks):
+            print("At least one LLM provider secret is required: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY.")
+            sys.exit(1)
 
-          print("LLM secret names and key formats look valid.")
-          PY
+        print("LLM secret names and key formats look valid.")
+        PY
 
-      - name: Run job scraper
-        run: python scraper.py
+    - name: Run job scraper
+      run: python scraper.py
 
-      - name: Wait before scoring
-        run: sleep 600
+    - name: Wait before scoring
+      run: sleep 60
 
-      - name: Run job scorer
-        run: python score_jobs.py
+    - name: Run job scorer
+      run: python score_jobs.py
 
-      - name: Wait before resume customization
-        run: sleep 600
+    - name: Wait before resume customization
+      run: sleep 60
 
-      - name: Run resume customization
-        run: python custom_resume_generator.py
+    - name: Run resume customization
+      run: python custom_resume_generator.py
