@@ -784,7 +784,7 @@ if __name__ == "__main__":
     # Get jobs from LinkedIn
     if "linkedin" in scraping_sources:
         logging.info("\n--- Starting LinkedIn Job Scraping ---")
-        max_jobs_per_search = config.MAX_JOBS_PER_SEARCH.get("linkedin", getattr(config, 'DEFAULT_MAX_JOBS_PER_SEARCH', 10))
+        max_jobs_per_search = app_settings.get_advanced_int("maxLinkedinJobsPerSearch")
         linkedin_locations = app_settings.get_linkedin_locations()
         for query in app_settings.get_linkedin_search_queries():
             for location in linkedin_locations:
@@ -806,7 +806,7 @@ if __name__ == "__main__":
     # Get jobs from Careers Future
     if "careers_future" in scraping_sources:
         logging.info(f"\n--- Starting Careers Future Job Scraping ---")
-        max_jobs_per_search = config.MAX_JOBS_PER_SEARCH.get("careers_future", getattr(config, 'DEFAULT_MAX_JOBS_PER_SEARCH', 10))
+        max_jobs_per_search = app_settings.get_advanced_int("maxCareersFutureJobsPerSearch")
         for query in app_settings.get_careers_future_search_queries():
             logging.info(f"\n{'='*20} Processing Careers Future Search Query: '{query}' {'='*20}")
 

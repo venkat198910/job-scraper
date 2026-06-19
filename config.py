@@ -184,12 +184,14 @@ SCRAPING_SOURCES = [
     # "careers_future"
 ]
 
-JOBS_TO_SCORE_PER_RUN = 20
+JOBS_TO_SCORE_PER_RUN = 10
 
-JOBS_TO_CUSTOMIZE_PER_RUN = 20
+JOBS_TO_CUSTOMIZE_PER_RUN = 5
+
+JOBS_TO_RESCORE_PER_RUN = 5
 
 MAX_JOBS_PER_SEARCH = {
-    "linkedin": 25,
+    "linkedin": 20,
     "careers_future": 10,
 }
 

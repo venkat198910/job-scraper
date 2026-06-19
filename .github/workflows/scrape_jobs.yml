@@ -1,10 +1,14 @@
 # .github/workflows/scrape_jobs.yml
-name: Daily Job Scraper
+name: Hourly Job Discovery
 
 on:
   schedule:
-    - cron: "0 10 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
+
+concurrency:
+  group: hourly-job-discovery
+  cancel-in-progress: false
 
 jobs:
   scrape:

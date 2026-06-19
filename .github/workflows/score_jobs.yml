@@ -3,9 +3,13 @@ name: Job Scorer
 
 on:
   schedule:
-    # Runs every 4 hours (configurable — adjust to match your quota)
-    - cron: "0 */4 * * *"
+    # Runs hourly, 10 minutes after discovery, and only scores unscored jobs.
+    - cron: "10 * * * *"
   workflow_dispatch: # Allows manual triggering from the Actions tab
+
+concurrency:
+  group: hourly-job-scoring
+  cancel-in-progress: false
 
 jobs:
   score:

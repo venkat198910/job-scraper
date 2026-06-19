@@ -202,7 +202,9 @@ def rescore_jobs_with_custom_resume():
     logging.info("--- Starting Job Re-scoring with Custom Resumes ---")
     rescore_start_time = time.time()
 
-    jobs_to_rescore = supabase_utils.get_jobs_to_rescore(config.JOBS_TO_SCORE_PER_RUN)
+    jobs_to_rescore = supabase_utils.get_jobs_to_rescore(
+        app_settings.get_advanced_int("jobsToRescorePerRun")
+    )
     if not jobs_to_rescore:
         logging.info("No jobs require re-scoring with custom resumes at this time.")
         logging.info("--- Job Re-scoring Finished (No Jobs) ---")
@@ -305,7 +307,9 @@ def main():
         logging.info("Default resume data formatted to text.")
 
         # 3. Fetch Jobs to Score
-        jobs_to_score_initially = supabase_utils.get_jobs_to_score(config.JOBS_TO_SCORE_PER_RUN)
+        jobs_to_score_initially = supabase_utils.get_jobs_to_score(
+            app_settings.get_advanced_int("jobsToScorePerRun")
+        )
         if not jobs_to_score_initially:
             logging.info("No jobs require initial scoring at this time.")
         else:

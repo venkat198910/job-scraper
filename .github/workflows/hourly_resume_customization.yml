@@ -2,9 +2,13 @@ name: Resume Customization
 
 on:
   schedule:
-    # Runs every 6 hours (configurable — adjust to match your quota)
-    - cron: "0 */6 * * *"
+    # Runs hourly, 10 minutes after scoring, and only customizes eligible scored jobs.
+    - cron: "20 * * * *"
   workflow_dispatch: # Allows manual triggering from the Actions tab in GitHub
+
+concurrency:
+  group: hourly-resume-customization
+  cancel-in-progress: false
 
 jobs:
   customize_resumes:

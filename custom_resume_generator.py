@@ -559,7 +559,7 @@ async def run_job_processing_cycle():
         return # Abort cycle if base resume is invalid
 
     # 2. Fetch Top Jobs to Process
-    jobs_limit = config.JOBS_TO_CUSTOMIZE_PER_RUN
+    jobs_limit = app_settings.get_advanced_int("jobsToCustomizePerRun")
     min_score = app_settings.get_min_score()
     logging.info(f"Fetching top {jobs_limit} scored jobs to apply for...")
     jobs_to_process = supabase_utils.get_top_scored_jobs_for_resume_generation(limit=jobs_limit)

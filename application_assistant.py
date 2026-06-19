@@ -496,6 +496,7 @@ def _first_existing_resume_path(resume_file: str | None, candidate: ApplicationC
 
 def _load_profile_defaults() -> dict[str, str]:
     defaults = app_settings.get_application_profile_defaults()
+    defaults.update(app_settings.get_application_auto_answer_defaults())
     profile_json = os.environ.get("APPLICATION_PROFILE_JSON", "{}") or "{}"
     try:
         profile = json.loads(profile_json)
