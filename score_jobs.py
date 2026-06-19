@@ -8,6 +8,7 @@ import pdfplumber
 import os
 
 import config
+import app_settings
 import supabase_utils
 from llm_client import primary_client
 
