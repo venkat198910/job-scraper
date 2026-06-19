@@ -87,6 +87,32 @@ jobs:
     - name: Run resume customization
       run: python custom_resume_generator.py
 
+    - name: Validate LinkedIn session secret
+      run: |
+        python - <<'PY'
+        import json
+        import os
+        import sys
+
+        state = os.environ.get("LINKEDIN_STORAGE_STATE_JSON", "").strip()
+        if not state:
+            print("LINKEDIN_STORAGE_STATE_JSON secret is missing.")
+            print("Create it from a local Playwright LinkedIn login session before running auto-apply.")
+            sys.exit(1)
+
+        try:
+            parsed = json.loads(state)
+        except json.JSONDecodeError as exc:
+            print(f"LINKEDIN_STORAGE_STATE_JSON is not valid JSON: {exc}")
+            sys.exit(1)
+
+        if not parsed.get("cookies"):
+            print("LINKEDIN_STORAGE_STATE_JSON has no cookies. Recreate the LinkedIn session.")
+            sys.exit(1)
+
+        print("LinkedIn session secret is present.")
+        PY
+
     - name: Install Playwright browser
       run: python -m playwright install --with-deps chromium
 

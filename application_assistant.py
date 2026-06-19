@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -797,6 +798,8 @@ async def main() -> None:
         print(f"\nQueued {queued} candidate(s) as application_ready. No browser actions or submissions were performed.")
         return
 
+    results: list[dict[str, Any]] = []
+
     for candidate in candidates:
         if args.mode == "prepare-workday-profile":
             if detect_portal(candidate.apply_url, candidate.provider) != "workday":
@@ -811,6 +814,7 @@ async def main() -> None:
                 allow_login=effective_allow_login,
             )
             queue_candidate(candidate, status=result["status"])
+            results.append(result)
             print(json.dumps(result, indent=2))
             continue
 
@@ -827,6 +831,7 @@ async def main() -> None:
                 allow_login=effective_allow_login,
             )
             queue_candidate(candidate, status=result["status"])
+            results.append(result)
             print(json.dumps(result, indent=2))
             continue
 
@@ -842,6 +847,7 @@ async def main() -> None:
                 manual_login_wait=args.manual_login_wait,
             )
             queue_candidate(candidate, status=result["status"])
+            results.append(result)
             print(json.dumps(result, indent=2))
             continue
 
@@ -855,12 +861,24 @@ async def main() -> None:
             manual_login_wait=args.manual_login_wait,
         )
         queue_candidate(candidate, status=result["status"])
+        results.append(result)
         print(json.dumps(result, indent=2))
 
     if effective_allow_submit:
         print("\nSubmit was allowed only where no unknown required fields were detected.")
     else:
         print("\nStopped before final submit for every candidate.")
+
+    if args.mode == "auto-apply":
+        progress_statuses = {"manual_review_required", "submitted"}
+        progressed = [result for result in results if result.get("status") in progress_statuses]
+        if candidates and not progressed:
+            statuses = sorted({str(result.get("status")) for result in results})
+            print(
+                "\nAuto-apply did not reach any application form. "
+                f"Statuses: {statuses}. Check LinkedIn session secret or Easy Apply availability."
+            )
+            sys.exit(2)
 
 
 if __name__ == "__main__":
