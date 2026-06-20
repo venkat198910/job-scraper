@@ -216,11 +216,110 @@ CAREERS_FUTURE_SEARCH_EMPLOYMENT_TYPES = [
 ]
 
 # =================================================================
+# COMPANY CAREERS SEARCH CONFIGURATION
+# =================================================================
+
+# Company career pages are scraped through public ATS APIs where available.
+# Add more targets here without touching scraper logic.
+COMPANY_CAREER_ROLE_KEYWORDS = [
+    "devops",
+    "site reliability",
+    "sre",
+    "cloud engineer",
+    "cloud platform",
+    "platform engineer",
+    "infrastructure",
+    "kubernetes",
+    "terraform",
+    "devsecops",
+    "release engineer",
+    "observability",
+]
+
+COMPANY_CAREER_LOCATION_KEYWORDS = [
+    "bengaluru",
+    "bangalore",
+    "karnataka",
+    "india",
+    "dubai",
+    "abu dhabi",
+    "united arab emirates",
+    "uae",
+    "remote",
+]
+
+COMPANY_CAREER_TARGET_LIMIT = 300
+
+COMPANY_CAREER_TARGETS = [
+    # Automotive/product engineering companies requested first.
+    {"name": "Mercedes-Benz", "ats": "smartrecruiters", "slug": "MercedesBenz"},
+    {"name": "Mercedes-Benz Group", "ats": "smartrecruiters", "slug": "MercedesBenzGroup"},
+    {"name": "BMW", "ats": "smartrecruiters", "slug": "BMW"},
+    {"name": "BMW Group", "ats": "smartrecruiters", "slug": "BMWGroup"},
+    {"name": "Volvo Group", "ats": "smartrecruiters", "slug": "VolvoGroup"},
+    {"name": "Volvo Cars", "ats": "smartrecruiters", "slug": "VolvoCars"},
+
+    # Greenhouse boards commonly used by product/platform companies.
+    {"name": "Airbnb", "ats": "greenhouse", "slug": "airbnb"},
+    {"name": "Anduril", "ats": "greenhouse", "slug": "andurilindustries"},
+    {"name": "Applied Intuition", "ats": "greenhouse", "slug": "appliedintuition"},
+    {"name": "Asana", "ats": "greenhouse", "slug": "asana"},
+    {"name": "Benchling", "ats": "greenhouse", "slug": "benchling"},
+    {"name": "Box", "ats": "greenhouse", "slug": "boxinc"},
+    {"name": "Brex", "ats": "greenhouse", "slug": "brex"},
+    {"name": "Canonical", "ats": "greenhouse", "slug": "canonical"},
+    {"name": "Cloudflare", "ats": "greenhouse", "slug": "cloudflare"},
+    {"name": "Coinbase", "ats": "greenhouse", "slug": "coinbase"},
+    {"name": "Databricks", "ats": "greenhouse", "slug": "databricks"},
+    {"name": "DoorDash", "ats": "greenhouse", "slug": "doordashusa"},
+    {"name": "Dropbox", "ats": "greenhouse", "slug": "dropbox"},
+    {"name": "Figma", "ats": "greenhouse", "slug": "figma"},
+    {"name": "GitHub", "ats": "greenhouse", "slug": "github"},
+    {"name": "Gusto", "ats": "greenhouse", "slug": "gusto"},
+    {"name": "HashiCorp", "ats": "greenhouse", "slug": "hashicorp"},
+    {"name": "Instacart", "ats": "greenhouse", "slug": "instacart"},
+    {"name": "Lyft", "ats": "greenhouse", "slug": "lyft"},
+    {"name": "MongoDB", "ats": "greenhouse", "slug": "mongodb"},
+    {"name": "Notion", "ats": "greenhouse", "slug": "notion"},
+    {"name": "Okta", "ats": "greenhouse", "slug": "okta"},
+    {"name": "Pinterest", "ats": "greenhouse", "slug": "pinterest"},
+    {"name": "Plaid", "ats": "greenhouse", "slug": "plaid"},
+    {"name": "Reddit", "ats": "greenhouse", "slug": "reddit"},
+    {"name": "Rippling", "ats": "greenhouse", "slug": "rippling"},
+    {"name": "Roblox", "ats": "greenhouse", "slug": "roblox"},
+    {"name": "Scale AI", "ats": "greenhouse", "slug": "scaleai"},
+    {"name": "Snowflake", "ats": "greenhouse", "slug": "snowflakecomputing"},
+    {"name": "SoFi", "ats": "greenhouse", "slug": "sofi"},
+    {"name": "Stripe", "ats": "greenhouse", "slug": "stripe"},
+    {"name": "Twilio", "ats": "greenhouse", "slug": "twilio"},
+    {"name": "Uber", "ats": "greenhouse", "slug": "uber"},
+    {"name": "Wayfair", "ats": "greenhouse", "slug": "wayfair"},
+    {"name": "Zapier", "ats": "greenhouse", "slug": "zapier"},
+
+    # Lever boards.
+    {"name": "Netflix", "ats": "lever", "slug": "netflix"},
+    {"name": "Spotify", "ats": "lever", "slug": "spotify"},
+    {"name": "Slack", "ats": "lever", "slug": "slack"},
+    {"name": "Verkada", "ats": "lever", "slug": "verkada"},
+    {"name": "LaunchDarkly", "ats": "lever", "slug": "launchdarkly"},
+    {"name": "Samsara", "ats": "lever", "slug": "samsara"},
+    {"name": "Sourcegraph", "ats": "lever", "slug": "sourcegraph"},
+    {"name": "Vercel", "ats": "lever", "slug": "vercel"},
+
+    # Ashby boards.
+    {"name": "Anthropic", "ats": "ashby", "slug": "anthropic"},
+    {"name": "Cursor", "ats": "ashby", "slug": "cursor"},
+    {"name": "Linear", "ats": "ashby", "slug": "linear"},
+    {"name": "Perplexity", "ats": "ashby", "slug": "perplexity"},
+]
+
+# =================================================================
 # PROCESSING LIMITS
 # =================================================================
 
 SCRAPING_SOURCES = [
-    "linkedin"
+    "linkedin",
+    "company_careers",
     # "careers_future"
 ]
 
@@ -233,6 +332,7 @@ JOBS_TO_RESCORE_PER_RUN = 5
 MAX_JOBS_PER_SEARCH = {
     "linkedin": 20,
     "careers_future": 10,
+    "company_careers": 300,
 }
 
 # =================================================================

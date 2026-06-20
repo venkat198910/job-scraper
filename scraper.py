@@ -898,6 +898,283 @@ def process_careers_future_query(search_query: str, limit: int = None) -> list:
     logging.info(f"--- Finished Phase 4: Successfully fetched details for {processed_count} new job(s) ---")
     return detailed_new_jobs
 
+def _plain_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return re.sub(r"\s+", " ", value).strip()
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+def _job_matches_company_career_keywords(job_details: dict) -> bool:
+    if _job_matches_excluded_title_keywords(job_details):
+        return False
+
+    title = (job_details.get("job_title") or "").lower()
+    description = (job_details.get("description") or "").lower()
+    haystack = f"{title}\n{description}"
+    keywords = getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    return any(str(keyword).lower() in haystack for keyword in keywords)
+
+def _job_matches_company_career_location(job_details: dict) -> bool:
+    location = (job_details.get("location") or "").lower()
+    if not location:
+        return False
+
+    keywords = getattr(config, "COMPANY_CAREER_LOCATION_KEYWORDS", [])
+    return any(str(keyword).lower() in location for keyword in keywords)
+
+def _company_career_job_allowed(job_details: dict) -> bool:
+    description = job_details.get("description")
+    if not description or not description.strip():
+        return False
+    if not _job_matches_company_career_keywords(job_details):
+        return False
+    if not _job_matches_company_career_location(job_details):
+        return False
+    if not _linkedin_job_matches_experience_range(job_details):
+        return False
+    if _is_uae_location(job_details.get("location")) and not _linkedin_uae_job_has_sponsorship(job_details):
+        return False
+    return True
+
+def _fetch_json(url: str) -> dict | list | None:
+    try:
+        response = requests.get(url, timeout=app_settings.get_advanced_int("requestTimeout"))
+        if response.status_code == 404:
+            logging.info("Career endpoint not found: %s", url)
+            return None
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Career endpoint request failed for %s: %s", url, exc)
+    except json.JSONDecodeError as exc:
+        logging.warning("Career endpoint did not return JSON for %s: %s", url, exc)
+    return None
+
+def _normalize_greenhouse_job(target: dict, job: dict) -> dict | None:
+    job_id = job.get("id")
+    if not job_id:
+        return None
+
+    description = convert_html_to_markdown(job.get("content") or "")
+    offices = job.get("offices") if isinstance(job.get("offices"), list) else []
+    location = (job.get("location") or {}).get("name") if isinstance(job.get("location"), dict) else ""
+    if not location and offices:
+        location = ", ".join(_plain_text(office.get("name")) for office in offices if isinstance(office, dict) and office.get("name"))
+
+    return {
+        "job_id": f"greenhouse-{target.get('slug')}-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(job.get("title")),
+        "location": _plain_text(location),
+        "level": "",
+        "provider": "company_careers_greenhouse",
+        "description": description,
+        "posted_at": job.get("updated_at") or "",
+        "job_url": job.get("absolute_url"),
+        "apply_url": job.get("absolute_url"),
+    }
+
+def _fetch_greenhouse_jobs(target: dict) -> list[dict]:
+    slug = target.get("slug")
+    url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+    payload = _fetch_json(url)
+    if not isinstance(payload, dict):
+        return []
+    return [
+        job_details
+        for job in payload.get("jobs", [])
+        if isinstance(job, dict)
+        for job_details in [_normalize_greenhouse_job(target, job)]
+        if job_details
+    ]
+
+def _normalize_lever_job(target: dict, job: dict) -> dict | None:
+    job_id = job.get("id")
+    if not job_id:
+        return None
+
+    categories = job.get("categories") if isinstance(job.get("categories"), dict) else {}
+    description = job.get("descriptionPlain") or convert_html_to_markdown(job.get("description") or "")
+    lists = job.get("lists") if isinstance(job.get("lists"), list) else []
+    list_text = "\n".join(
+        f"{item.get('text', '')}\n" + "\n".join(item.get("content", []) or [])
+        for item in lists
+        if isinstance(item, dict)
+    )
+    if list_text.strip():
+        description = f"{description}\n\n{list_text}".strip()
+
+    return {
+        "job_id": f"lever-{target.get('slug')}-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(job.get("text")),
+        "location": _plain_text(categories.get("location")),
+        "level": _plain_text(categories.get("commitment")),
+        "provider": "company_careers_lever",
+        "description": description,
+        "posted_at": job.get("createdAt") or "",
+        "job_url": job.get("hostedUrl") or job.get("applyUrl"),
+        "apply_url": job.get("hostedUrl") or job.get("applyUrl"),
+    }
+
+def _fetch_lever_jobs(target: dict) -> list[dict]:
+    slug = target.get("slug")
+    url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    payload = _fetch_json(url)
+    if not isinstance(payload, list):
+        return []
+    return [
+        job_details
+        for job in payload
+        if isinstance(job, dict)
+        for job_details in [_normalize_lever_job(target, job)]
+        if job_details
+    ]
+
+def _normalize_ashby_job(target: dict, job: dict) -> dict | None:
+    job_id = job.get("id")
+    if not job_id:
+        return None
+
+    location_value = job.get("location")
+    if isinstance(location_value, dict):
+        location = location_value.get("name")
+    else:
+        location = location_value
+
+    description = convert_html_to_markdown(job.get("descriptionHtml") or job.get("description") or "")
+    return {
+        "job_id": f"ashby-{target.get('slug')}-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(job.get("title")),
+        "location": _plain_text(location),
+        "level": _plain_text(job.get("employmentType")),
+        "provider": "company_careers_ashby",
+        "description": description,
+        "posted_at": job.get("publishedAt") or "",
+        "job_url": job.get("jobUrl") or job.get("applyUrl"),
+        "apply_url": job.get("jobUrl") or job.get("applyUrl"),
+    }
+
+def _fetch_ashby_jobs(target: dict) -> list[dict]:
+    slug = target.get("slug")
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true"
+    payload = _fetch_json(url)
+    if not isinstance(payload, dict):
+        return []
+    jobs = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
+    return [
+        job_details
+        for job in jobs
+        if isinstance(job, dict)
+        for job_details in [_normalize_ashby_job(target, job)]
+        if job_details
+    ]
+
+def _smartrecruiters_location(job: dict) -> str:
+    location = job.get("location") if isinstance(job.get("location"), dict) else {}
+    parts = [
+        location.get("city"),
+        location.get("region"),
+        location.get("country"),
+    ]
+    return ", ".join(_plain_text(part) for part in parts if _plain_text(part))
+
+def _smartrecruiters_description(job: dict) -> str:
+    job_ad = job.get("jobAd") if isinstance(job.get("jobAd"), dict) else {}
+    sections = job_ad.get("sections") if isinstance(job_ad.get("sections"), dict) else {}
+    texts = []
+    for value in sections.values():
+        if isinstance(value, dict):
+            text = value.get("text") or value.get("title")
+            if text:
+                texts.append(str(text))
+        elif isinstance(value, str):
+            texts.append(value)
+    return convert_html_to_markdown("\n".join(texts))
+
+def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
+    slug = target.get("slug")
+    list_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100"
+    payload = _fetch_json(list_url)
+    if not isinstance(payload, dict):
+        return []
+
+    jobs = []
+    for summary in payload.get("content", []):
+        if not isinstance(summary, dict) or not summary.get("id"):
+            continue
+        detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{summary['id']}"
+        detail = _fetch_json(detail_url)
+        job = detail if isinstance(detail, dict) else summary
+        jobs.append(
+            {
+                "job_id": f"smartrecruiters-{slug}-{summary['id']}",
+                "company": target.get("name"),
+                "job_title": _plain_text(job.get("name") or summary.get("name")),
+                "location": _smartrecruiters_location(job or summary),
+                "level": _plain_text(job.get("experienceLevel", {}).get("label") if isinstance(job.get("experienceLevel"), dict) else ""),
+                "provider": "company_careers_smartrecruiters",
+                "description": _smartrecruiters_description(job),
+                "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
+                "job_url": job.get("ref") or summary.get("ref"),
+                "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
+            }
+        )
+    return jobs
+
+def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
+    ats = str(target.get("ats") or "").lower()
+    if ats == "greenhouse":
+        return _fetch_greenhouse_jobs(target)
+    if ats == "lever":
+        return _fetch_lever_jobs(target)
+    if ats == "ashby":
+        return _fetch_ashby_jobs(target)
+    if ats == "smartrecruiters":
+        return _fetch_smartrecruiters_jobs(target)
+    logging.info("Unsupported company career ATS '%s' for %s", ats, target.get("name"))
+    return []
+
+def process_company_careers(limit: int | None = None) -> list:
+    """Fetch matching jobs from configured top company career pages."""
+    targets = list(getattr(config, "COMPANY_CAREER_TARGETS", []))
+    target_limit = int(getattr(config, "COMPANY_CAREER_TARGET_LIMIT", 300) or 300)
+    targets = targets[:target_limit]
+
+    job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+    detailed_new_jobs = []
+
+    for target in targets:
+        if limit is not None and len(detailed_new_jobs) >= limit:
+            break
+        if not isinstance(target, dict) or not target.get("slug"):
+            continue
+
+        logging.info("Scraping company careers target: %s (%s)", target.get("name"), target.get("ats"))
+        for details in _fetch_company_career_target_jobs(target):
+            if limit is not None and len(detailed_new_jobs) >= limit:
+                break
+            if not details.get("job_id") or str(details["job_id"]) in job_ids_set:
+                continue
+
+            normalized_company = (details.get("company") or "").strip().lower()
+            normalized_title = (details.get("job_title") or "").strip().lower()
+            if normalized_company and normalized_title and (normalized_company, normalized_title) in company_title_set:
+                continue
+
+            if not _company_career_job_allowed(details):
+                continue
+
+            detailed_new_jobs.append(details)
+            job_ids_set.add(str(details["job_id"]))
+            if normalized_company and normalized_title:
+                company_title_set.add((normalized_company, normalized_title))
+
+    logging.info("--- Finished Company Careers: matched %s new job(s) ---", len(detailed_new_jobs))
+    return detailed_new_jobs
+
 # --- Main Execution ---
 if __name__ == "__main__":
 
@@ -946,6 +1223,21 @@ if __name__ == "__main__":
                 logging.info(f"\nNo new job details were fetched or processed for query '{query}'.")
     else:
         logging.info("\n--- Skipping Careers Future Job Scraping per config ---")
+
+    # Get jobs from configured company career pages / ATS APIs.
+    if "company_careers" in scraping_sources:
+        logging.info("\n--- Starting Company Careers Job Scraping ---")
+        max_jobs_per_run = app_settings.get_advanced_int("maxCompanyCareerJobsPerRun")
+        new_company_career_jobs = process_company_careers(limit=max_jobs_per_run)
+
+        if new_company_career_jobs:
+            logging.info("\n--- Saving %s new company career job(s) ---", len(new_company_career_jobs))
+            supabase_utils.save_jobs_to_supabase(new_company_career_jobs)
+            total_new_jobs_saved += len(new_company_career_jobs)
+        else:
+            logging.info("\nNo new company career jobs were fetched or processed.")
+    else:
+        logging.info("\n--- Skipping Company Careers Job Scraping per config ---")
 
     # --- End of Script ---      
     logging.info(f"\n{'='*20} Job scraping script finished {'='*20}")
