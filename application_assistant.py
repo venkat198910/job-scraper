@@ -130,6 +130,33 @@ def _candidate_is_fresh(candidate: ApplicationCandidate, max_age_minutes: int | 
     return age_minutes is not None and 0 <= age_minutes <= max_age_minutes
 
 
+def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
+    if not job_ids:
+        return {}
+
+    try:
+        response = (
+            supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+            .select("job_id, posted_at, scraped_at")
+            .in_("job_id", job_ids)
+            .execute()
+        )
+    except Exception as exc:
+        logging.warning("Could not load posted_at/scraped_at for candidates: %s", exc)
+        return {}
+
+    job_times: dict[str, dict[str, str]] = {}
+    for row in response.data or []:
+        job_id = str(row.get("job_id") or "")
+        if not job_id:
+            continue
+        job_times[job_id] = {
+            "posted_at": str(row.get("posted_at") or ""),
+            "scraped_at": str(row.get("scraped_at") or ""),
+        }
+    return job_times
+
+
 def fetch_candidates(
     limit: int,
     min_score: int,
@@ -149,15 +176,30 @@ def fetch_candidates(
         },
     ).execute()
 
+    rows = response.data or []
+    job_times = _load_job_times(
+        [str(job.get("job_id")) for job in rows if job.get("job_id") is not None]
+    )
+
     candidates = []
+    skipped_missing_resume = 0
+    skipped_score = 0
+    skipped_freshness = 0
     for job in response.data or []:
         if not job.get("customized_resume_id") or not job.get("resume_link"):
+            skipped_missing_resume += 1
             continue
         if _score(job) < min_score:
+            skipped_score += 1
             continue
 
+        job_id = str(job["job_id"])
+        timing = job_times.get(job_id, {})
+        posted_at = str(job.get("posted_at") or timing.get("posted_at") or "")
+        scraped_at = str(job.get("scraped_at") or timing.get("scraped_at") or "")
+
         candidate = ApplicationCandidate(
-            job_id=str(job["job_id"]),
+            job_id=job_id,
             job_title=job.get("job_title") or "",
             company=job.get("company") or "",
             location=job.get("location") or "",
@@ -167,12 +209,23 @@ def fetch_candidates(
             resume_link=str(job["resume_link"]),
             apply_url=build_apply_url(job),
             application_type=detect_application_type(job),
-            scraped_at=str(job.get("scraped_at") or ""),
-            posted_at=str(job.get("posted_at") or ""),
+            scraped_at=scraped_at,
+            posted_at=posted_at,
         )
         if not _candidate_is_fresh(candidate, max_age_minutes):
+            skipped_freshness += 1
             continue
         candidates.append(candidate)
+
+    logging.info(
+        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s max_age_minutes=%s",
+        len(rows),
+        len(candidates),
+        skipped_missing_resume,
+        skipped_score,
+        skipped_freshness,
+        max_age_minutes,
+    )
 
     return candidates
 
