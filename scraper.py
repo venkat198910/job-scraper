@@ -107,6 +107,41 @@ def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
 
     return any(min_years <= low <= max_years and high <= max_years for low, high in ranges)
 
+def _parse_int(value: str) -> int | None:
+    try:
+        return int(value.replace(",", "").strip())
+    except (AttributeError, ValueError):
+        return None
+
+def _extract_linkedin_applicant_count(soup: BeautifulSoup) -> int | None:
+    """Extract the visible LinkedIn applicant count when the guest page exposes it."""
+    text = soup.get_text(" ", strip=True)
+    text = re.sub(r"\s+", " ", text)
+
+    applicant_match = re.search(
+        r"\b(\d[\d,]*)\s+applicants?\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if applicant_match:
+        return _parse_int(applicant_match.group(1))
+
+    return None
+
+def _linkedin_job_exceeds_applicant_limit(job_details: dict) -> bool:
+    max_applicants = int(getattr(config, "LINKEDIN_MAX_APPLICANTS", 0) or 0)
+    if max_applicants <= 0:
+        return False
+
+    applicant_count = job_details.get("applicant_count")
+    if applicant_count is None:
+        return False
+
+    try:
+        return int(applicant_count) > max_applicants
+    except (TypeError, ValueError):
+        return False
+
 def _job_matches_excluded_title_keywords(job_details: dict) -> bool:
     """Return True when a broad search result is clearly outside target roles."""
     excluded_keywords = getattr(config, "EXCLUDED_JOB_TITLE_KEYWORDS", [])
@@ -391,6 +426,13 @@ def _fetch_linkedin_job_details(job_id: str) -> dict | None:
             print(f"Error extracting location for job ID {job_id}: {e}")
             job_details["location"] = None
 
+        # --- Extract Applicant Count ---
+        try:
+            job_details["applicant_count"] = _extract_linkedin_applicant_count(soup)
+        except Exception as e:
+            logging.warning("Could not extract applicant count for job ID %s: %s", job_id, e)
+            job_details["applicant_count"] = None
+
         # --- Extract Description ---
         description_html = "" 
         try:
@@ -479,6 +521,14 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
                         details.get("job_title"),
                     )
                     continue
+                if _linkedin_job_exceeds_applicant_limit(details):
+                    logging.info(
+                        "Skipping job ID %s because applicant count %s is above limit %s.",
+                        job_id,
+                        details.get("applicant_count"),
+                        getattr(config, "LINKEDIN_MAX_APPLICANTS", 0),
+                    )
+                    continue
                 if not _linkedin_job_matches_experience_range(details):
                     logging.info(
                         "Skipping job ID %s because requested experience is outside %s-%s years.",
@@ -488,6 +538,7 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
                     )
                     continue
                 if 'job_id' in details and details['job_id'] is not None:
+                    details.pop("applicant_count", None)
                     detailed_new_jobs.append(details)
                     processed_count += 1
                 else:

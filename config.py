@@ -138,6 +138,11 @@ LINKEDIN_MIN_EXPERIENCE_YEARS = 6
 LINKEDIN_MAX_EXPERIENCE_YEARS = 12
 LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH = True
 
+# Skip LinkedIn jobs that already have more than this many applicants.
+# Set to 0 to disable the applicant-count filter. If LinkedIn does not expose
+# an applicant count, the job is kept.
+LINKEDIN_MAX_APPLICANTS = 30
+
 # Local title/domain guard. Broad searches like "Cloud Engineer" can return
 # data engineering jobs; skip them before saving/scoring.
 EXCLUDED_JOB_TITLE_KEYWORDS = [
