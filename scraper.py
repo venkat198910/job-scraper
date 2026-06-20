@@ -10,7 +10,7 @@ import supabase_utils
 from markdownify import markdownify as md
 import json
 import re
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 import app_settings
 
 # --- Setup Logging ---
@@ -951,6 +951,29 @@ def _fetch_json(url: str) -> dict | list | None:
         logging.warning("Career endpoint did not return JSON for %s: %s", url, exc)
     return None
 
+def _random_user_agent() -> str:
+    agents = getattr(user_agents, "USER_AGENTS", None) or getattr(user_agents, "user_agents", None) or []
+    return random.choice(agents) if agents else "Mozilla/5.0"
+
+def _post_json(url: str, payload: dict) -> dict | list | None:
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+            headers={"User-Agent": _random_user_agent()},
+        )
+        if response.status_code == 404:
+            logging.info("Career endpoint not found: %s", url)
+            return None
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Career endpoint request failed for %s: %s", url, exc)
+    except json.JSONDecodeError as exc:
+        logging.warning("Career endpoint did not return JSON for %s: %s", url, exc)
+    return None
+
 def _normalize_greenhouse_job(target: dict, job: dict) -> dict | None:
     job_id = job.get("id")
     if not job_id:
@@ -1124,6 +1147,175 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
         )
     return jobs
 
+def _workday_job_url(target: dict, external_path: str) -> str:
+    host = target.get("host")
+    site = target.get("site")
+    if not host or not external_path:
+        return ""
+    if external_path.startswith("http"):
+        return external_path
+    if site and external_path.startswith("/job/"):
+        return f"https://{host}/{site}{external_path}"
+    return f"https://{host}{external_path}"
+
+def _normalize_workday_job(target: dict, summary: dict, detail: dict | None) -> dict | None:
+    info = detail.get("jobPostingInfo") if isinstance(detail, dict) and isinstance(detail.get("jobPostingInfo"), dict) else {}
+    external_path = (
+        info.get("externalUrl")
+        or info.get("externalPath")
+        or summary.get("externalPath")
+        or summary.get("externalUrl")
+        or ""
+    )
+    job_id = summary.get("bulletFields", [None])[0] if isinstance(summary.get("bulletFields"), list) and summary.get("bulletFields") else None
+    job_id = job_id or summary.get("title") or external_path
+    if not job_id:
+        return None
+
+    description = (
+        info.get("jobDescription")
+        or info.get("jobDescriptionText")
+        or summary.get("description")
+        or ""
+    )
+    if "<" in str(description):
+        description = convert_html_to_markdown(description)
+
+    return {
+        "job_id": f"workday-{target.get('tenant')}-{target.get('site')}-{_plain_text(job_id).lower().replace(' ', '-')}",
+        "company": target.get("name"),
+        "job_title": _plain_text(info.get("title") or summary.get("title")),
+        "location": _plain_text(info.get("location") or summary.get("locationsText")),
+        "level": _plain_text(info.get("timeType") or summary.get("timeType")),
+        "provider": "company_careers_workday",
+        "description": description,
+        "posted_at": info.get("startDate") or summary.get("postedOn") or "",
+        "job_url": _workday_job_url(target, external_path),
+        "apply_url": _workday_job_url(target, external_path),
+    }
+
+def _fetch_workday_jobs(target: dict) -> list[dict]:
+    host = target.get("host")
+    tenant = target.get("tenant")
+    site = target.get("site")
+    if not host or not tenant or not site:
+        return []
+
+    list_url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
+    jobs: list[dict] = []
+    seen_ids: set[str] = set()
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        payload = _post_json(list_url, {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": str(search_text)})
+        if not isinstance(payload, dict):
+            continue
+        for summary in payload.get("jobPostings", []):
+            if not isinstance(summary, dict):
+                continue
+            external_path = summary.get("externalPath") or ""
+            dedupe_key = external_path or summary.get("title")
+            if not dedupe_key or dedupe_key in seen_ids:
+                continue
+            seen_ids.add(str(dedupe_key))
+
+            detail = None
+            if external_path:
+                detail_url = f"https://{host}/wday/cxs/{tenant}/{site}{external_path}"
+                detail_payload = _fetch_json(detail_url)
+                detail = detail_payload if isinstance(detail_payload, dict) else None
+
+            job_details = _normalize_workday_job(target, summary, detail)
+            if job_details:
+                jobs.append(job_details)
+    return jobs
+
+def _normalize_jibe_job(target: dict, card) -> dict | None:
+    link = card.select_one('a[href*="/job/"]')
+    if not link:
+        return None
+    href = link.get("href") or ""
+    job_id = link.get("data-job-id") or href.rstrip("/").split("/")[-1]
+    if not job_id:
+        return None
+
+    base_url = target.get("base_url")
+    job_url = urljoin(base_url, href)
+    detail = _fetch_jibe_job_detail(job_url)
+    return {
+        "job_id": f"jibe-{target.get('name', '').lower().replace(' ', '-')}-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(link.get_text(" ", strip=True)),
+        "location": _plain_text((card.select_one(".location") or {}).get_text(" ", strip=True) if card.select_one(".location") else ""),
+        "level": _plain_text((card.select_one(".category") or {}).get_text(" ", strip=True) if card.select_one(".category") else ""),
+        "provider": "company_careers_jibe",
+        "description": detail.get("description") or _plain_text(card.get_text(" ", strip=True)),
+        "posted_at": detail.get("posted_at") or "",
+        "job_url": job_url,
+        "apply_url": job_url,
+    }
+
+def _fetch_jibe_job_detail(job_url: str) -> dict:
+    payload = {"description": "", "posted_at": ""}
+    try:
+        response = requests.get(job_url, timeout=app_settings.get_advanced_int("requestTimeout"), headers={"User-Agent": _random_user_agent()})
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Career job detail request failed for %s: %s", job_url, exc)
+        return payload
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    description = soup.select_one(".ats-description") or soup.select_one(".job-description")
+    details = soup.select_one('[data-selector-name="jobdetails"]')
+    posted_text = ""
+    if details:
+        details_text = details.get_text(" ", strip=True)
+        posted_match = re.search(r"Date posted\s+([A-Za-z]{3,9}\.?\s+\d{1,2},\s+\d{4})", details_text)
+        posted_text = posted_match.group(1) if posted_match else ""
+    payload["description"] = convert_html_to_markdown(str(description)) if description else ""
+    payload["posted_at"] = posted_text
+    return payload
+
+def _fetch_jibe_jobs(target: dict) -> list[dict]:
+    base_url = target.get("base_url")
+    if not base_url:
+        return []
+
+    jobs = []
+    seen_ids = set()
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        query = urlencode(
+            {
+                "ActiveFacetID": 0,
+                "CurrentPage": 1,
+                "RecordsPerPage": 20,
+                "Distance": 50,
+                "RadiusUnitType": 0,
+                "Keywords": str(search_text),
+                "ShowRadius": "False",
+                "IsPagination": "False",
+                "CustomFacetName": "",
+                "FacetTerm": "",
+                "FacetType": 0,
+                "SearchResultsModuleName": "Search Results",
+                "SearchFiltersModuleName": "Search Filters",
+                "SortCriteria": 0,
+                "SortDirection": 1,
+                "SearchType": 5,
+            }
+        )
+        payload = _fetch_json(f"{base_url.rstrip('/')}/search-jobs/results?{query}")
+        if not isinstance(payload, dict) or not payload.get("hasJobs"):
+            continue
+        soup = BeautifulSoup(payload.get("results") or "", "html.parser")
+        for card in soup.select("li.job-card"):
+            job_details = _normalize_jibe_job(target, card)
+            if not job_details or job_details["job_id"] in seen_ids:
+                continue
+            seen_ids.add(job_details["job_id"])
+            jobs.append(job_details)
+    return jobs
+
 def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
     ats = str(target.get("ats") or "").lower()
     if ats == "greenhouse":
@@ -1134,6 +1326,10 @@ def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
         return _fetch_ashby_jobs(target)
     if ats == "smartrecruiters":
         return _fetch_smartrecruiters_jobs(target)
+    if ats == "workday":
+        return _fetch_workday_jobs(target)
+    if ats == "jibe":
+        return _fetch_jibe_jobs(target)
     logging.info("Unsupported company career ATS '%s' for %s", ats, target.get("name"))
     return []
 
@@ -1149,7 +1345,7 @@ def process_company_careers(limit: int | None = None) -> list:
     for target in targets:
         if limit is not None and len(detailed_new_jobs) >= limit:
             break
-        if not isinstance(target, dict) or not target.get("slug"):
+        if not isinstance(target, dict):
             continue
 
         logging.info("Scraping company careers target: %s (%s)", target.get("name"), target.get("ats"))

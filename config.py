@@ -258,6 +258,12 @@ COMPANY_CAREER_TARGETS = [
     {"name": "BMW Group", "ats": "smartrecruiters", "slug": "BMWGroup"},
     {"name": "Volvo Group", "ats": "smartrecruiters", "slug": "VolvoGroup"},
     {"name": "Volvo Cars", "ats": "smartrecruiters", "slug": "VolvoCars"},
+    {"name": "Bosch", "ats": "smartrecruiters", "slug": "BoschGroup"},
+
+    # Workday/Jibe career sites verified from public career pages.
+    {"name": "Philips", "ats": "workday", "host": "philips.wd3.myworkdayjobs.com", "tenant": "philips", "site": "jobs-and-careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Signify", "ats": "workday", "host": "lighting.wd3.myworkdayjobs.com", "tenant": "lighting", "site": "jobs-and-careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Arm", "ats": "jibe", "base_url": "https://careers.arm.com", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
 
     # Greenhouse boards commonly used by product/platform companies.
     {"name": "Airbnb", "ats": "greenhouse", "slug": "airbnb"},
