@@ -223,8 +223,28 @@ def download_resume(candidate: ApplicationCandidate) -> Path:
     return output_path
 
 
-async def _click_first_button(page: Any, pattern: re.Pattern[str], messages: list[str], timeout: int = 5000) -> bool:
-    button = page.get_by_role("button", name=pattern)
+async def _application_scope(page: Any) -> Any:
+    for selector in [
+        "div[role='dialog']:visible",
+        ".jobs-easy-apply-modal:visible",
+        ".artdeco-modal:visible",
+        "[data-test-modal]:visible",
+    ]:
+        scope = page.locator(selector)
+        if await scope.count() > 0:
+            return scope.last
+    return page
+
+
+async def _click_first_button(
+    page: Any,
+    pattern: re.Pattern[str],
+    messages: list[str],
+    timeout: int = 5000,
+    scope: Any | None = None,
+) -> bool:
+    root = scope or page
+    button = root.get_by_role("button", name=pattern)
     if await button.count() == 0:
         return False
     try:
@@ -232,8 +252,13 @@ async def _click_first_button(page: Any, pattern: re.Pattern[str], messages: lis
         messages.append(f"Clicked button: {pattern.pattern}")
         return True
     except Exception as exc:
-        messages.append(f"Detected button but could not click safely: {exc}")
-        return False
+        try:
+            await button.first.evaluate("(element) => element.click()", timeout=2000)
+            messages.append(f"Clicked button with DOM fallback: {pattern.pattern}")
+            return True
+        except Exception:
+            messages.append(f"Detected button but could not click safely: {exc}")
+            return False
 
 
 async def _launch_chromium(playwright: Any, headless: bool) -> Any:
@@ -273,6 +298,10 @@ async def _linkedin_login_visible(page: Any) -> bool:
 
 def _is_linkedin_url(url: str) -> bool:
     return bool(re.search(r"(^https?://)?([^/]+\.)?linkedin\.com/", url or "", re.IGNORECASE))
+
+
+def _is_http_url(url: str) -> bool:
+    return bool(re.match(r"^https?://", url or "", re.IGNORECASE))
 
 
 async def _wait_for_manual_linkedin_login(page: Any, context: Any, result: dict[str, Any], wait_seconds: int) -> bool:
@@ -376,7 +405,7 @@ async def resolve_linkedin_company_apply_url(
             except Exception:
                 pass
             url = candidate_page.url
-            if url and not _is_linkedin_url(url) and url != "about:blank":
+            if _is_http_url(url) and not _is_linkedin_url(url):
                 result["resolved_apply_url"] = url
                 result["apply_url"] = url
                 result["portal"] = detect_portal(url, "")
@@ -394,8 +423,9 @@ async def resolve_linkedin_company_apply_url(
     return result
 
 
-async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: list[str]) -> bool:
-    file_inputs = page.locator("input[type='file']")
+async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: list[str], scope: Any | None = None) -> bool:
+    root = scope or page
+    file_inputs = root.locator("input[type='file']")
     if await file_inputs.count() == 0:
         messages.append("No resume upload input detected on the current step.")
         return False
@@ -462,9 +492,9 @@ async def _fill_field_safely(field: Any, value: str, label: str, messages: list[
         return False
 
 
-async def _fill_profile_defaults(page: Any, messages: list[str]) -> None:
+async def _fill_profile_defaults(page: Any, messages: list[str], scope: Any | None = None) -> None:
     for label, value in _load_profile_defaults().items():
-        await _fill_label_if_present(page, label, value, messages)
+        await _fill_label_if_present(page, label, value, messages, scope=scope)
 
 
 async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: list[str]) -> bool:
@@ -511,14 +541,20 @@ async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: 
     return True
 
 
-async def _detect_required_unfilled(page: Any) -> list[str]:
+async def _detect_required_unfilled(page: Any, scope: Any | None = None) -> list[str]:
     labels = []
-    required_controls = page.locator(
+    root = scope or page
+    required_controls = root.locator(
         "input[required], textarea[required], select[required], [aria-required='true']"
     )
     count = await required_controls.count()
     for index in range(min(count, 25)):
         control = required_controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+        except Exception:
+            continue
         try:
             value = await control.input_value(timeout=1000)
             if value:
@@ -535,14 +571,15 @@ async def _detect_required_unfilled(page: Any) -> list[str]:
     return labels
 
 
-async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any]) -> None:
-    required_unfilled = await _detect_required_unfilled(page)
+async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], scope: Any | None = None) -> None:
+    root = scope or page
+    required_unfilled = await _detect_required_unfilled(page, scope=root)
     if required_unfilled:
         result["status"] = "manual_review_required"
         result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
         return
 
-    submit = page.get_by_role("button", name=FINAL_SUBMIT_TEXT)
+    submit = root.get_by_role("button", name=FINAL_SUBMIT_TEXT)
     if await submit.count() == 0:
         result["status"] = "manual_review_required"
         result["messages"].append("No final submit/apply button detected.")
@@ -553,7 +590,10 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any]) -
         result["messages"].append("Final submit/apply button detected. Submit blocked because --allow-submit was not provided.")
         return
 
-    await submit.first.click(timeout=10000)
+    try:
+        await submit.first.click(timeout=10000)
+    except Exception:
+        await submit.first.evaluate("(element) => element.click()", timeout=2000)
     result["status"] = "submitted"
     result["messages"].append("Application submitted because --allow-submit was explicitly provided.")
 
@@ -659,7 +699,9 @@ async def prepare_linkedin_easy_apply(
             await browser.close()
             return result
 
-        file_inputs = page.locator("input[type='file']")
+        application_scope = await _application_scope(page)
+
+        file_inputs = application_scope.locator("input[type='file']")
         if await file_inputs.count() > 0:
             await file_inputs.first.set_input_files(str(resume_path))
             result["messages"].append("Custom resume uploaded.")
@@ -667,26 +709,46 @@ async def prepare_linkedin_easy_apply(
             result["messages"].append("Resume upload input not found on the first step.")
 
         if phone_number:
-            phone_inputs = page.locator(
+            phone_inputs = application_scope.locator(
                 "input[name*='phone' i], input[id*='phone' i], input[aria-label*='phone' i]"
             )
             if await phone_inputs.count() > 0:
                 await _fill_field_safely(phone_inputs.first, phone_number, "Phone", result["messages"])
 
         for label, value in default_answers.items():
-            field = page.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
+            field = application_scope.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
             if await field.count() > 0:
                 await _fill_field_safely(field.first, str(value), label, result["messages"])
 
         for _ in range(4):
-            if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+            application_scope = await _application_scope(page)
+            if await application_scope.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
                 break
-            clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=3000)
+            clicked = await _click_first_button(
+                page,
+                NEXT_BUTTON_TEXT,
+                result["messages"],
+                timeout=5000,
+                scope=application_scope,
+            )
             if not clicked:
                 break
             await page.wait_for_timeout(1000)
+            application_scope = await _application_scope(page)
+            await _upload_resume_if_possible(page, resume_path, result["messages"], scope=application_scope)
+            if phone_number:
+                phone_inputs = application_scope.locator(
+                    "input[name*='phone' i], input[id*='phone' i], input[aria-label*='phone' i]"
+                )
+                if await phone_inputs.count() > 0:
+                    await _fill_field_safely(phone_inputs.first, phone_number, "Phone", result["messages"])
+            for label, value in default_answers.items():
+                field = application_scope.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
+                if await field.count() > 0:
+                    await _fill_field_safely(field.first, str(value), label, result["messages"])
 
-        await _maybe_submit(page, allow_submit, result)
+        application_scope = await _application_scope(page)
+        await _maybe_submit(page, allow_submit, result, scope=application_scope)
         _update_job_after_submission(candidate, result)
 
         await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
@@ -740,13 +802,20 @@ def _load_profile_defaults() -> dict[str, str]:
     return {key: value for key, value in defaults.items() if value}
 
 
-async def _fill_label_if_present(page: Any, label: str, value: str, messages: list[str]) -> None:
-    field = page.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
+async def _fill_label_if_present(
+    page: Any,
+    label: str,
+    value: str,
+    messages: list[str],
+    scope: Any | None = None,
+) -> None:
+    root = scope or page
+    field = root.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
     if await field.count() == 0:
         return
 
     try:
-        await field.first.fill(value, timeout=3000)
+        await _fill_field_safely(field.first, value, label, messages)
         messages.append(f"Filled Workday field: {label}")
     except Exception:
         # Some Workday controls are custom comboboxes/selects; leave them for manual review.
@@ -843,6 +912,16 @@ async def prepare_company_portal(
     allow_login: bool = False,
 ) -> dict[str, Any]:
     portal = detect_portal(apply_url, candidate.provider if candidate else "")
+    if not _is_http_url(apply_url):
+        return {
+            "job_id": candidate.job_id if candidate else None,
+            "apply_url": apply_url,
+            "resume_path": str(_first_existing_resume_path(resume_file, candidate)),
+            "status": "external_apply_unresolved",
+            "portal": portal,
+            "messages": [f"Company portal URL is not a valid HTTP URL: {apply_url}"],
+        }
+
     if portal == "workday":
         return await prepare_workday_profile(
             apply_url=apply_url,
@@ -873,7 +952,18 @@ async def prepare_company_portal(
             context_options["storage_state"] = storage_state
         context = await browser.new_context(**context_options)
         page = await context.new_page()
-        await page.goto(apply_url, wait_until="domcontentloaded", timeout=90000)
+        try:
+            response = await page.goto(apply_url, wait_until="domcontentloaded", timeout=90000)
+            if page.url.startswith("chrome-error://") or response is None:
+                result["status"] = "external_apply_unresolved"
+                result["messages"].append(f"Could not open company portal URL: {apply_url}")
+                await browser.close()
+                return result
+        except Exception as exc:
+            result["status"] = "external_apply_unresolved"
+            result["messages"].append(f"Could not open company portal URL: {exc}")
+            await browser.close()
+            return result
         await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
 
         await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
