@@ -506,16 +506,20 @@ async def prepare_linkedin_easy_apply(
                 await browser.close()
                 return result
 
-        easy_apply = page.get_by_role("button", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
-        easy_apply_source = "button"
+        easy_apply = page.locator(
+            f"a[href*='/jobs/view/{candidate.job_id}/apply/'][href*='openSDUIApplyFlow=true']"
+        )
+        easy_apply_source = "current job apply link"
+        if await easy_apply.count() == 0:
+            easy_apply = page.locator(
+                f"a[aria-label='Easy Apply to this job'][href*='/jobs/view/{candidate.job_id}/apply/']"
+            )
+            easy_apply_source = "current job aria apply link"
+        if await easy_apply.count() == 0:
+            easy_apply = page.get_by_role("button", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
+            easy_apply_source = "button"
         if await easy_apply.count() == 0:
             easy_apply = page.locator("button:has-text('Easy Apply')")
-        if await easy_apply.count() == 0:
-            easy_apply = page.get_by_role("link", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
-            easy_apply_source = "link"
-        if await easy_apply.count() == 0:
-            easy_apply = page.locator("a[href*='/apply/'][href*='openSDUIApplyFlow=true']")
-            easy_apply_source = "apply link"
 
         if await easy_apply.count() > 0:
             try:
