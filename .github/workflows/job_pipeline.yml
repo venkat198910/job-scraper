@@ -2,9 +2,9 @@ name: Job Pipeline
 
 on:
   schedule:
-    # GitHub cron is UTC. Runs hourly, then waits 10 minutes between
-    # discovery, scoring, resume customization, and application attempts.
-    - cron: '3 * * * *'
+  # GitHub cron is UTC. Runs hourly, then waits 10 minutes between
+  # discovery, scoring, resume customization, and application attempts.
+  - cron: '0 */2 * * *'
   workflow_dispatch:
 
 
@@ -78,19 +78,19 @@ jobs:
       run: python scraper.py
 
     - name: Wait before scoring
-      run: sleep 600
+      run: sleep 60
 
     - name: Run job scorer
       run: python score_jobs.py
 
     - name: Wait before resume customization
-      run: sleep 600
+      run: sleep 60
 
     - name: Run resume customization
       run: python custom_resume_generator.py
 
     - name: Wait before application attempts
-      run: sleep 600
+      run: sleep 60
 
     - name: Validate LinkedIn session secret
       run: |
