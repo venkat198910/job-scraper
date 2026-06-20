@@ -24,6 +24,14 @@ on:
         description: "Maximum candidates to inspect"
         required: true
         default: "10"
+      max_job_age_minutes:
+        description: "Only process jobs posted/scraped within this many minutes. 0 disables freshness filter."
+        required: true
+        default: "120"
+      daily_submit_limit:
+        description: "Maximum applications to submit per UTC day. 0 disables the cap."
+        required: true
+        default: "30"
       provider:
         description: "Provider scope"
         required: true
@@ -93,6 +101,8 @@ jobs:
             --provider "$PROVIDER"
             --min-score "${{ inputs.min_score }}"
             --limit "${{ inputs.limit }}"
+            --max-job-age-minutes "${{ inputs.max_job_age_minutes }}"
+            --daily-submit-limit "${{ inputs.daily_submit_limit }}"
           )
           if [ "${{ inputs.headless }}" = "true" ]; then
             ARGS+=(--headless)

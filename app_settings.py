@@ -40,7 +40,8 @@ DEFAULT_SETTINGS = {
         "pythonExperience": "3+",
     },
     "applicationAutomation": {
-        "maxJobAgeMinutes": 60,
+        "maxJobAgeMinutes": 120,
+        "maxDailyApplications": 30,
         "allowFinalSubmit": False,
         "allowPortalLogin": False,
         "allowPortalRegister": False,
@@ -214,6 +215,12 @@ def normalize_settings(value: Any) -> dict[str, Any]:
                 defaults["applicationAutomation"]["maxJobAgeMinutes"],
                 1,
                 1440,
+            ),
+            "maxDailyApplications": _bounded_int(
+                incoming_automation.get("maxDailyApplications"),
+                defaults["applicationAutomation"]["maxDailyApplications"],
+                0,
+                200,
             ),
             "allowFinalSubmit": bool(
                 incoming_automation.get(

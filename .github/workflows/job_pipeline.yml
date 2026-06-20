@@ -2,9 +2,9 @@ name: Job Pipeline
 
 on:
   schedule:
-  # GitHub cron is UTC. Runs every hour at :03, then waits 10 minutes
-  # between discovery, scoring, and resume customization.
-  - cron: '0 */2 * * *'
+    # GitHub cron is UTC. Runs hourly, then waits 10 minutes between
+    # discovery, scoring, resume customization, and application attempts.
+    - cron: '3 * * * *'
   workflow_dispatch:
 
 
@@ -74,20 +74,23 @@ jobs:
         print("LLM secret names and key formats look valid.")
         PY
 
-    # - name: Run job scraper
-    #   run: python scraper.py
+    - name: Run job scraper
+      run: python scraper.py
 
-    # - name: Wait before scoring
-    #   run: sleep 60
+    - name: Wait before scoring
+      run: sleep 600
 
-    # - name: Run job scorer
-    #   run: python score_jobs.py
+    - name: Run job scorer
+      run: python score_jobs.py
 
-    # - name: Wait before resume customization
-    #   run: sleep 60
+    - name: Wait before resume customization
+      run: sleep 600
 
-    # - name: Run resume customization
-    #   run: python custom_resume_generator.py
+    - name: Run resume customization
+      run: python custom_resume_generator.py
+
+    - name: Wait before application attempts
+      run: sleep 600
 
     - name: Validate LinkedIn session secret
       run: |
@@ -119,7 +122,7 @@ jobs:
       run: python -m playwright install --with-deps chromium
 
     - name: Run LinkedIn Easy Apply assistant
-      run: python application_assistant.py --mode auto-apply --provider linkedin --limit 5 --min-score 80 --headless --allow-submit
+      run: python application_assistant.py --mode auto-apply --provider linkedin --limit 2 --min-score 80 --max-job-age-minutes 120 --daily-submit-limit 30 --headless --allow-submit
 
     - name: Validate company portal credentials
       run: |
@@ -136,4 +139,4 @@ jobs:
         PY
 
     - name: Run Company Portal assistant
-      run: python application_assistant.py --mode prepare-company-portal --provider all --limit 5 --min-score 80 --headless --allow-login --allow-register --allow-submit
+      run: python application_assistant.py --mode prepare-company-portal --provider all --limit 1 --min-score 80 --max-job-age-minutes 120 --daily-submit-limit 30 --headless --allow-login --allow-register --allow-submit

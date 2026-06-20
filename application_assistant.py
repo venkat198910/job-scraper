@@ -101,7 +101,41 @@ def _score(job: dict[str, Any]) -> int:
         return 0
 
 
-def fetch_candidates(limit: int, min_score: int, provider: str | None = "linkedin") -> list[ApplicationCandidate]:
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _candidate_age_minutes(candidate: ApplicationCandidate) -> float | None:
+    posted = _parse_datetime(candidate.posted_at) or _parse_datetime(candidate.scraped_at)
+    if not posted:
+        return None
+    return (datetime.now(timezone.utc) - posted).total_seconds() / 60
+
+
+def _candidate_is_fresh(candidate: ApplicationCandidate, max_age_minutes: int | None) -> bool:
+    if not max_age_minutes or max_age_minutes <= 0:
+        return True
+    age_minutes = _candidate_age_minutes(candidate)
+    return age_minutes is not None and 0 <= age_minutes <= max_age_minutes
+
+
+def fetch_candidates(
+    limit: int,
+    min_score: int,
+    provider: str | None = "linkedin",
+    max_age_minutes: int | None = None,
+) -> list[ApplicationCandidate]:
     response = supabase_utils.supabase.rpc(
         "get_top_scored_jobs_custom_sort",
         {
@@ -122,23 +156,23 @@ def fetch_candidates(limit: int, min_score: int, provider: str | None = "linkedi
         if _score(job) < min_score:
             continue
 
-        application_type = detect_application_type(job)
-        candidates.append(
-            ApplicationCandidate(
-                job_id=str(job["job_id"]),
-                job_title=job.get("job_title") or "",
-                company=job.get("company") or "",
-                location=job.get("location") or "",
-                provider=job.get("provider") or "",
-                resume_score=_score(job),
-                customized_resume_id=str(job["customized_resume_id"]),
-                resume_link=str(job["resume_link"]),
-                apply_url=build_apply_url(job),
-                application_type=application_type,
-                scraped_at=str(job.get("scraped_at") or ""),
-                posted_at=str(job.get("posted_at") or ""),
-            )
+        candidate = ApplicationCandidate(
+            job_id=str(job["job_id"]),
+            job_title=job.get("job_title") or "",
+            company=job.get("company") or "",
+            location=job.get("location") or "",
+            provider=job.get("provider") or "",
+            resume_score=_score(job),
+            customized_resume_id=str(job["customized_resume_id"]),
+            resume_link=str(job["resume_link"]),
+            apply_url=build_apply_url(job),
+            application_type=detect_application_type(job),
+            scraped_at=str(job.get("scraped_at") or ""),
+            posted_at=str(job.get("posted_at") or ""),
         )
+        if not _candidate_is_fresh(candidate, max_age_minutes):
+            continue
+        candidates.append(candidate)
 
     return candidates
 
@@ -148,6 +182,31 @@ def candidate_pool_limit(limit: int, mode: str) -> int:
     if mode not in {"auto-apply", "prepare-company-portal"}:
         return limit
     return max(limit * 10, 50)
+
+
+def count_submitted_today() -> int:
+    start_of_day = datetime.now(timezone.utc).replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    try:
+        response = (
+            supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+            .select("job_id", count="exact")
+            .eq("status", "applied")
+            .gte("application_date", start_of_day.isoformat())
+            .execute()
+        )
+        return int(response.count or len(response.data or []))
+    except Exception as exc:
+        logging.warning("Could not count today's submitted applications: %s", exc)
+        return 0
+
+
+def _daily_submit_available(submitted_today: int, daily_submit_limit: int) -> bool:
+    return daily_submit_limit <= 0 or submitted_today < daily_submit_limit
 
 
 def _write_json_env_to_file(env_key: str, output_path: str) -> str | None:
@@ -1542,6 +1601,18 @@ async def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=app_settings.get_min_score())
+    parser.add_argument(
+        "--max-job-age-minutes",
+        type=int,
+        default=None,
+        help="Only process jobs posted/scraped within this many minutes. 0 disables the freshness filter.",
+    )
+    parser.add_argument(
+        "--daily-submit-limit",
+        type=int,
+        default=None,
+        help="Maximum applications to submit per UTC day. 0 disables the cap.",
+    )
     parser.add_argument("--provider", choices=["linkedin", "all"], default="linkedin")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--apply-url", help="Manual apply URL, useful for Workday/company portals.")
@@ -1573,6 +1644,16 @@ async def main() -> None:
     effective_allow_submit = args.allow_submit or bool(automation_settings.get("allowFinalSubmit"))
     effective_allow_login = args.allow_login or bool(automation_settings.get("allowPortalLogin"))
     effective_allow_register = args.allow_register or bool(automation_settings.get("allowPortalRegister"))
+    max_job_age_minutes = (
+        args.max_job_age_minutes
+        if args.max_job_age_minutes is not None
+        else int(automation_settings.get("maxJobAgeMinutes") or 0)
+    )
+    daily_submit_limit = (
+        args.daily_submit_limit
+        if args.daily_submit_limit is not None
+        else int(automation_settings.get("maxDailyApplications") or 0)
+    )
 
     if args.mode in {"prepare-workday-profile", "prepare-company-portal"} and args.apply_url:
         if args.mode == "prepare-workday-profile":
@@ -1601,7 +1682,12 @@ async def main() -> None:
         return
 
     provider = None if args.provider == "all" else args.provider
-    candidates = fetch_candidates(limit=candidate_pool_limit(args.limit, args.mode), min_score=args.min_score, provider=provider)
+    candidates = fetch_candidates(
+        limit=candidate_pool_limit(args.limit, args.mode),
+        min_score=args.min_score,
+        provider=provider,
+        max_age_minutes=max_job_age_minutes if args.mode in {"auto-apply", "prepare-company-portal"} else None,
+    )
     print_candidates(candidates)
 
     if args.mode == "plan":
@@ -1616,9 +1702,17 @@ async def main() -> None:
     results: list[dict[str, Any]] = []
     progress_statuses = {"manual_review_required", "submitted"}
     progress_count = 0
+    submitted_today = count_submitted_today() if effective_allow_submit else 0
 
     for candidate in candidates:
         if args.mode == "prepare-workday-profile":
+            submit_allowed = effective_allow_submit and _daily_submit_available(
+                submitted_today,
+                daily_submit_limit,
+            )
+            if effective_allow_submit and not submit_allowed:
+                logging.info("Daily submit limit reached: %s", daily_submit_limit)
+                break
             if detect_portal(candidate.apply_url, candidate.provider) != "workday":
                 logging.info("Skipping non-Workday candidate %s.", candidate.job_id)
                 continue
@@ -1627,16 +1721,25 @@ async def main() -> None:
                 resume_file=args.resume_file,
                 candidate=candidate,
                 headless=effective_headless,
-                allow_submit=effective_allow_submit,
+                allow_submit=submit_allowed,
                 allow_login=effective_allow_login,
                 allow_register=effective_allow_register,
             )
             queue_candidate(candidate, status=result["status"])
             results.append(result)
             print(json.dumps(result, indent=2))
+            if result.get("status") == "submitted":
+                submitted_today += 1
             continue
 
         if args.mode == "prepare-company-portal":
+            submit_allowed = effective_allow_submit and _daily_submit_available(
+                submitted_today,
+                daily_submit_limit,
+            )
+            if effective_allow_submit and not submit_allowed:
+                logging.info("Daily submit limit reached: %s", daily_submit_limit)
+                break
             apply_url = candidate.apply_url
             if detect_portal(candidate.apply_url, candidate.provider) == "linkedin":
                 resolve_result = await resolve_linkedin_company_apply_url(
@@ -1656,7 +1759,7 @@ async def main() -> None:
                 resume_file=args.resume_file,
                 candidate=candidate,
                 headless=effective_headless,
-                allow_submit=effective_allow_submit,
+                allow_submit=submit_allowed,
                 allow_login=effective_allow_login,
                 allow_register=effective_allow_register,
             )
@@ -1669,6 +1772,8 @@ async def main() -> None:
             )
             results.append(result)
             print(json.dumps(result, indent=2))
+            if result.get("status") == "submitted":
+                submitted_today += 1
             if result.get("status") in progress_statuses:
                 progress_count += 1
                 if progress_count >= args.limit:
@@ -1677,6 +1782,13 @@ async def main() -> None:
             continue
 
         if args.mode == "auto-apply":
+            submit_allowed = effective_allow_submit and _daily_submit_available(
+                submitted_today,
+                daily_submit_limit,
+            )
+            if effective_allow_submit and not submit_allowed:
+                logging.info("Daily submit limit reached: %s", daily_submit_limit)
+                break
             if detect_portal(candidate.apply_url, candidate.provider) != "linkedin":
                 logging.info("Skipping non-LinkedIn candidate %s in auto-apply mode.", candidate.job_id)
                 queue_candidate(candidate, status="company_portal_review")
@@ -1684,12 +1796,14 @@ async def main() -> None:
             result = await prepare_linkedin_easy_apply(
                 candidate,
                 headless=effective_headless,
-                allow_submit=effective_allow_submit,
+                allow_submit=submit_allowed,
                 manual_login_wait=args.manual_login_wait,
             )
             queue_candidate(candidate, status=result["status"])
             results.append(result)
             print(json.dumps(result, indent=2))
+            if result.get("status") == "submitted":
+                submitted_today += 1
             if result.get("status") in progress_statuses:
                 progress_count += 1
                 if progress_count >= args.limit:
