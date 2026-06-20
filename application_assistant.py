@@ -64,6 +64,17 @@ def detect_portal(apply_url: str, provider: str = "") -> str:
     return (provider or "unknown").lower()
 
 
+def detect_portal_for_url(apply_url: str) -> str:
+    for portal, pattern in PORTAL_PATTERNS.items():
+        if pattern.search(apply_url or ""):
+            return portal
+    if _is_linkedin_url(apply_url):
+        return "linkedin"
+    if _is_http_url(apply_url):
+        return "company_portal"
+    return "unknown"
+
+
 def detect_application_type(job: dict[str, Any]) -> str:
     provider = (job.get("provider") or "").lower()
     apply_url = build_apply_url(job)
@@ -325,6 +336,17 @@ async def _page_has_button(page: Any, pattern: re.Pattern[str]) -> bool:
     return await page.get_by_role("button", name=pattern).count() > 0
 
 
+async def _first_visible(locator: Any, limit: int = 20) -> Any | None:
+    for index in range(min(await locator.count(), limit)):
+        item = locator.nth(index)
+        try:
+            if await item.is_visible(timeout=500):
+                return item
+        except Exception:
+            continue
+    return None
+
+
 async def _linkedin_login_visible(page: Any) -> bool:
     if "login" in page.url.lower() or "uas/login" in page.url.lower():
         return True
@@ -428,6 +450,20 @@ async def resolve_linkedin_company_apply_url(
 
         existing_pages = set(context.pages)
         try:
+            href = await apply_controls.first.get_attribute("href")
+            if _is_http_url(href or "") and not _is_linkedin_url(href or ""):
+                result["resolved_apply_url"] = href
+                result["apply_url"] = href
+                result["portal"] = detect_portal_for_url(href or "")
+                result["status"] = "external_apply_resolved"
+                result["messages"].append(f"Resolved company portal URL from Apply link: {href}")
+                await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+                await browser.close()
+                return result
+        except Exception:
+            pass
+
+        try:
             await apply_controls.first.click(timeout=15000)
             result["messages"].append("Clicked LinkedIn normal Apply control.")
         except Exception as exc:
@@ -437,9 +473,21 @@ async def resolve_linkedin_company_apply_url(
             await browser.close()
             return result
 
+        candidate_pages = []
+        try:
+            popup = await page.wait_for_event("popup", timeout=7000)
+            candidate_pages.append(popup)
+        except Exception:
+            pass
+
         await page.wait_for_timeout(5000)
-        candidate_pages = [candidate_page for candidate_page in context.pages if candidate_page not in existing_pages]
-        candidate_pages.insert(0, page)
+        if page.url and _is_http_url(page.url) and not _is_linkedin_url(page.url):
+            candidate_pages.append(page)
+        for context_page in context.pages:
+            if context_page not in existing_pages and context_page not in candidate_pages:
+                candidate_pages.append(context_page)
+        if page not in candidate_pages:
+            candidate_pages.append(page)
 
         for candidate_page in candidate_pages:
             try:
@@ -450,7 +498,7 @@ async def resolve_linkedin_company_apply_url(
             if _is_http_url(url) and not _is_linkedin_url(url):
                 result["resolved_apply_url"] = url
                 result["apply_url"] = url
-                result["portal"] = detect_portal(url, "")
+                result["portal"] = detect_portal_for_url(url)
                 result["status"] = "external_apply_resolved"
                 result["messages"].append(f"Resolved company portal URL: {url}")
                 break
@@ -524,6 +572,17 @@ async def _fill_field_safely(field: Any, value: str, label: str, messages: list[
         contenteditable = (await field.get_attribute("contenteditable")) or ""
         if tag_name in {"input", "textarea"} or contenteditable.lower() == "true":
             await field.fill(str(value), timeout=3000)
+            role = (await field.get_attribute("role")) or ""
+            autocomplete = (await field.get_attribute("aria-autocomplete")) or ""
+            if role.lower() == "combobox" or autocomplete:
+                try:
+                    await field.press("ArrowDown", timeout=1000)
+                    await field.press("Enter", timeout=1000)
+                except Exception:
+                    try:
+                        await field.press("Enter", timeout=1000)
+                    except Exception:
+                        pass
             messages.append(f"Filled configured answer for: {label}")
             return True
 
@@ -585,19 +644,25 @@ async def _click_named_control(page: Any, pattern: re.Pattern[str], messages: li
 
 
 async def _detect_human_verification(page: Any) -> str | None:
-    content = ""
     try:
-        content = await page.content()
+        captcha = page.locator(
+            "iframe[src*='recaptcha']:visible, iframe[src*='hcaptcha']:visible, "
+            "[class*='captcha' i]:visible, [id*='captcha' i]:visible, "
+            "text=/verify you are human|complete the captcha|security check/i"
+        )
+        if await captcha.count() > 0:
+            return "captcha_required"
     except Exception:
-        return None
-    checks = [
-        (r"captcha|recaptcha|hcaptcha", "captcha_required"),
-        (r"verification code|verify your email|email verification|one-time|one time|otp", "email_or_otp_verification_required"),
-        (r"security question|multi-factor|two-factor|2fa|mfa", "mfa_required"),
-    ]
-    for pattern, status in checks:
-        if re.search(pattern, content, re.IGNORECASE):
-            return status
+        pass
+
+    try:
+        visible_text = await page.locator("body").inner_text(timeout=3000)
+    except Exception:
+        visible_text = ""
+    if re.search(r"verification code|verify your email|email verification|one-time|one time|otp", visible_text, re.IGNORECASE):
+        return "email_or_otp_verification_required"
+    if re.search(r"security question|multi-factor|two-factor|2fa|mfa", visible_text, re.IGNORECASE):
+        return "mfa_required"
     return None
 
 
@@ -620,23 +685,36 @@ async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: 
     )
 
     filled_any = False
-    if await email_inputs.count() > 0:
-        await email_inputs.first.fill(email, timeout=3000)
-        messages.append("Filled portal email.")
-        filled_any = True
-    if await password_inputs.count() > 0:
-        await password_inputs.first.fill(password, timeout=3000)
-        messages.append("Filled portal password.")
-        filled_any = True
+    visible_email = await _first_visible(email_inputs)
+    if visible_email:
+        try:
+            await visible_email.fill(email, timeout=3000)
+            messages.append("Filled portal email.")
+            filled_any = True
+        except Exception as exc:
+            messages.append(f"Portal email field was detected but could not be filled safely: {exc}")
+
+    visible_password = await _first_visible(password_inputs)
+    if visible_password:
+        try:
+            await visible_password.fill(password, timeout=3000)
+            messages.append("Filled portal password.")
+            filled_any = True
+        except Exception as exc:
+            messages.append(f"Portal password field was detected but could not be filled safely: {exc}")
 
     if not filled_any:
         return False
 
     sign_in_button = page.get_by_role("button", name=re.compile(r"^(sign in|log in|login|continue)$", re.IGNORECASE))
-    if await sign_in_button.count() > 0:
-        await sign_in_button.first.click(timeout=5000)
-        messages.append("Clicked portal login/continue.")
-        await page.wait_for_timeout(2000)
+    visible_button = await _first_visible(sign_in_button)
+    if visible_button:
+        try:
+            await visible_button.click(timeout=5000)
+            messages.append("Clicked portal login/continue.")
+            await page.wait_for_timeout(2000)
+        except Exception as exc:
+            messages.append(f"Portal login button was detected but could not be clicked safely: {exc}")
     return True
 
 
@@ -691,16 +769,20 @@ async def _register_portal_account_if_allowed(page: Any, allow_register: bool, m
         if not value:
             continue
         fields = page.locator(selector)
-        if await fields.count() > 0:
+        visible_field = await _first_visible(fields)
+        if visible_field:
             try:
-                await fields.first.fill(value, timeout=3000)
+                await visible_field.fill(value, timeout=3000)
             except Exception:
                 pass
 
     password_inputs = page.locator("input[type='password']")
-    for index in range(min(await password_inputs.count(), 3)):
+    for index in range(min(await password_inputs.count(), 5)):
+        password_input = password_inputs.nth(index)
         try:
-            await password_inputs.nth(index).fill(password, timeout=3000)
+            if not await password_input.is_visible(timeout=500):
+                continue
+            await password_input.fill(password, timeout=3000)
         except Exception:
             pass
 
@@ -772,23 +854,227 @@ async def _detect_required_unfilled(page: Any, scope: Any | None = None) -> list
         except Exception:
             continue
         try:
+            control_type = ((await control.get_attribute("type")) or "").lower()
+            if control_type == "file":
+                continue
+        except Exception:
+            pass
+        try:
             value = await control.input_value(timeout=1000)
             if value:
                 continue
         except Exception:
             pass
-        try:
-            aria_label = await control.get_attribute("aria-label")
-            name = await control.get_attribute("name")
-            control_id = await control.get_attribute("id")
-            labels.append(aria_label or name or control_id or f"required-field-{index + 1}")
-        except Exception:
-            labels.append(f"required-field-{index + 1}")
+        label = await _field_label_text(control, index)
+        if "resume/cv" in label.lower() and "required" in label.lower():
+            continue
+        normalized_label = re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+        if normalized_label in {"select", "choose"}:
+            continue
+        if _answer_for_required_label(label):
+            continue
+        labels.append(label)
     return labels
+
+
+def _digits_for_lpa(value: str) -> str:
+    match = re.search(r"(\d+(?:\.\d+)?)", value or "")
+    if not match:
+        return value
+    if re.search(r"lpa|lakh|lac", value or "", re.IGNORECASE):
+        return str(int(float(match.group(1)) * 100000))
+    return re.sub(r"[^\d]", "", value) or value
+
+
+def _answer_for_required_label(label: str) -> str | None:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
+    answers = app_settings.get_application_auto_answers()
+    profile = app_settings.get_application_profile()
+    if not normalized:
+        return None
+
+    if "current gross compensation" in normalized or "current compensation" in normalized or "current salary" in normalized:
+        return _digits_for_lpa(answers.get("indiaCurrentCtc", ""))
+    if "expected gross compensation" in normalized or "expected compensation" in normalized or "expected salary" in normalized:
+        return _digits_for_lpa(answers.get("indiaExpectedCtc", ""))
+    if "target salary" in normalized or "salary expectation" in normalized or "salary expectations" in normalized:
+        return answers.get("indiaExpectedCtc", "50 LPA")
+    if "available to start" in normalized or "availability" in normalized or "available from" in normalized:
+        return answers.get("availableFrom", "After 30 days notice")
+    if "notice" in normalized:
+        return answers.get("noticePeriod", "")
+    if "how did you hear" in normalized:
+        return "LinkedIn"
+    if "specially able" in normalized or "disability" in normalized:
+        return "No"
+    if "privacy policy" in normalized or "terms" in normalized:
+        return "Yes"
+    if "employment status" in normalized:
+        return answers.get("employmentType", "Full-time")
+    if "total work experience" in normalized or "total years of experience" in normalized:
+        return profile.get("totalExperience", "9.6")
+    if "relevant work experience" in normalized:
+        return profile.get("devopsExperience", "") or profile.get("sreExperience", "") or "7"
+    if "country" in normalized:
+        return answers.get("country", "India")
+    if "candidate location" in normalized or normalized == "location" or "current location" in normalized:
+        return answers.get("currentLocation") or profile.get("currentLocation", "")
+    if "city" in normalized:
+        return profile.get("addressCity", "")
+    if "state" in normalized:
+        return profile.get("addressState", "")
+    if "phone" in normalized or "mobile" in normalized:
+        return profile.get("phone", "")
+    if "email" in normalized:
+        return profile.get("email", "")
+    if "linkedin" in normalized:
+        return profile.get("linkedinUrl", "")
+    if ("authorized" in normalized or "authorised" in normalized) and "india" in normalized:
+        return answers.get("indiaWorkAuthorization", "")
+    if "authorized" in normalized or "authorised" in normalized or "work authorization" in normalized:
+        return answers.get("workAuthorization", "")
+    if "sponsor" in normalized or "visa" in normalized:
+        return answers.get("needSponsorship", "")
+    if "relocat" in normalized:
+        return answers.get("willingToRelocate", "")
+    if "experience" in normalized:
+        return profile.get("totalExperience", "")
+    if "cross cutting platform" in normalized or "served multiple products" in normalized or "multiple products or teams" in normalized:
+        return (
+            "I led reusable CI/CD and Kubernetes platform improvements used across multiple application teams, "
+            "standardizing deployment pipelines, observability, and infrastructure modules so teams could release "
+            "more reliably with less manual operational work."
+        )
+    if "influenced product" in normalized or "engineering direction" in normalized:
+        return (
+            "I influenced engineering direction by using production reliability data, deployment metrics, and incident "
+            "patterns to recommend platform changes, improve release quality, and prioritize automation that reduced "
+            "manual effort for multiple teams."
+        )
+    if "mentored" in normalized or "guided engineers" in normalized or "technical bar" in normalized:
+        return (
+            "I mentor engineers through code reviews, CI/CD design reviews, runbook improvements, and hands-on guidance "
+            "for Kubernetes, Terraform, monitoring, and incident response practices."
+        )
+    if "ai tools" in normalized or "leveraging ai" in normalized or "day to day development" in normalized:
+        return (
+            "I use AI tools to speed up troubleshooting, draft automation scripts, improve documentation, review CI/CD "
+            "changes, and explore test cases while still validating outputs against logs, code, and production constraints."
+        )
+    return None
+
+
+async def _field_label_text(field: Any, index: int) -> str:
+    try:
+        return await field.evaluate(
+            """(el, fallbackIndex) => {
+                const values = [];
+                const add = (value) => {
+                    if (value && String(value).trim()) values.push(String(value).trim());
+                };
+                if (el.labels) {
+                    Array.from(el.labels).forEach((label) => add(label.innerText || label.textContent));
+                }
+                const container = el.closest("label, .field, .application-question, [data-testid], div");
+                if (container) add(container.innerText || container.textContent);
+                const describedBy = el.getAttribute("aria-describedby");
+                if (describedBy) {
+                    describedBy.split(/\\s+/).forEach((id) => {
+                        const node = document.getElementById(id);
+                        if (node) add(node.innerText || node.textContent);
+                    });
+                }
+                add(el.getAttribute("aria-label"));
+                add(el.getAttribute("name"));
+                add(el.getAttribute("id"));
+                const placeholder = /^(select|select\\.\\.\\.|choose|choose\\.\\.\\.|attach|enter manually|google drive)$/i;
+                return values.find((value) => !placeholder.test(value.trim())) || values.find(Boolean) || `required-field-${fallbackIndex + 1}`;
+            }""",
+            index,
+        )
+    except Exception:
+        return f"required-field-{index + 1}"
+
+
+async def _fill_known_required_fields(page: Any, messages: list[str], scope: Any | None = None) -> None:
+    root = scope or page
+    controls = root.locator("input[required], textarea[required], select[required], [aria-required='true']")
+    count = await controls.count()
+    for index in range(min(count, 40)):
+        control = controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+        except Exception:
+            continue
+        try:
+            current_value = await control.input_value(timeout=1000)
+            if current_value:
+                continue
+        except Exception:
+            pass
+
+        label = await _field_label_text(control, index)
+        answer = _answer_for_required_label(label)
+        if not answer:
+            continue
+        await _fill_field_safely(control, str(answer), label, messages)
+
+
+async def _fill_common_portal_widgets(page: Any, portal: str, messages: list[str]) -> None:
+    answers = app_settings.get_application_auto_answers()
+    profile = app_settings.get_application_profile()
+    location = answers.get("currentLocation") or profile.get("currentLocation", "")
+    country = answers.get("country", "India")
+
+    if portal == "greenhouse":
+        for selector, value, label in [
+            ("input[id*='candidate-location' i], input[name*='candidate-location' i], input[aria-label*='location' i]", location, "Candidate Location"),
+            ("input[id*='country' i], input[name*='country' i], select[id*='country' i], select[name*='country' i]", country, "Country"),
+        ]:
+            if not value:
+                continue
+            fields = page.locator(selector)
+            if await fields.count() > 0:
+                await _fill_field_safely(fields.first, value, label, messages)
+                try:
+                    await page.keyboard.press("Enter")
+                except Exception:
+                    pass
+
+        yes_no_answers = {
+            "authorized": answers.get("indiaWorkAuthorization", "Yes"),
+            "sponsor": answers.get("indiaNeedSponsorship", "No"),
+            "visa": answers.get("indiaNeedSponsorship", "No"),
+            "relocat": answers.get("willingToRelocate", "Yes"),
+        }
+        radios = page.locator("input[type='radio']")
+        for index in range(min(await radios.count(), 40)):
+            radio = radios.nth(index)
+            try:
+                if await radio.is_checked(timeout=500):
+                    continue
+                label = await _field_label_text(radio, index)
+                desired = None
+                for key, value in yes_no_answers.items():
+                    if key in label.lower():
+                        desired = str(value).strip().lower()
+                        break
+                if desired not in {"yes", "no"}:
+                    continue
+                value_attr = ((await radio.get_attribute("value")) or "").lower()
+                radio_label = label.lower()
+                if desired in value_attr or re.search(rf"\b{desired}\b", radio_label):
+                    await radio.check(timeout=2000)
+                    messages.append(f"Selected configured radio answer for: {label}")
+            except Exception:
+                continue
 
 
 async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], scope: Any | None = None) -> None:
     root = scope or page
+    await _fill_common_portal_widgets(page, str(result.get("portal") or ""), result["messages"])
+    await _fill_known_required_fields(page, result["messages"], scope=root)
     required_unfilled = await _detect_required_unfilled(page, scope=root)
     if required_unfilled:
         result["status"] = "manual_review_required"
@@ -1027,15 +1313,14 @@ async def _fill_label_if_present(
 ) -> None:
     root = scope or page
     field = root.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
-    if await field.count() == 0:
+    visible_field = await _first_visible(field)
+    if not visible_field:
         return
 
     try:
-        await _fill_field_safely(field.first, value, label, messages)
-        messages.append(f"Filled Workday field: {label}")
+        await _fill_field_safely(visible_field, value, label, messages)
     except Exception:
-        # Some Workday controls are custom comboboxes/selects; leave them for manual review.
-        messages.append(f"Detected Workday field but left for manual review: {label}")
+        messages.append(f"Detected profile field but left for manual review: {label}")
 
 
 async def prepare_workday_profile(
@@ -1092,9 +1377,10 @@ async def prepare_workday_profile(
             r"Use My Last Application",
         ]:
             button = page.get_by_role("button", name=re.compile(button_name, re.IGNORECASE))
-            if await button.count() > 0:
+            visible_button = await _first_visible(button)
+            if visible_button:
                 try:
-                    await button.first.click(timeout=5000)
+                    await visible_button.click(timeout=5000)
                     result["messages"].append(f"Clicked Workday action: {button_name}")
                     break
                 except Exception:
@@ -1133,7 +1419,9 @@ async def prepare_company_portal(
     allow_login: bool = False,
     allow_register: bool = False,
 ) -> dict[str, Any]:
-    portal = detect_portal(apply_url, candidate.provider if candidate else "")
+    portal = detect_portal_for_url(apply_url)
+    if portal == "unknown":
+        portal = detect_portal(apply_url, candidate.provider if candidate else "")
     if not _is_http_url(apply_url):
         return {
             "job_id": candidate.job_id if candidate else None,
@@ -1187,27 +1475,38 @@ async def prepare_company_portal(
             result["messages"].append(f"Could not open company portal URL: {exc}")
             await browser.close()
             return result
-        await _ensure_portal_auth(page, allow_login, allow_register, result)
+        try:
+            await _ensure_portal_auth(page, allow_login, allow_register, result)
+        except Exception as exc:
+            result["status"] = "automation_error"
+            result["messages"].append(f"Portal login/auth automation failed safely: {exc}")
+            await _save_portal_storage_state(context, portal, apply_url, f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json")
+            await browser.close()
+            return result
         if result["status"] in {"portal_auth_required", "captcha_required", "email_or_otp_verification_required", "mfa_required"}:
             await _save_portal_storage_state(context, portal, apply_url, f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json")
             await browser.close()
             return result
 
-        await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
-        await _upload_resume_if_possible(page, resume_path, result["messages"])
-        await _fill_profile_defaults(page, result["messages"])
-
-        for _ in range(6):
-            if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
-                break
-            clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=4000)
-            if not clicked:
-                break
-            await page.wait_for_timeout(1200)
+        try:
+            await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
             await _upload_resume_if_possible(page, resume_path, result["messages"])
             await _fill_profile_defaults(page, result["messages"])
 
-        await _maybe_submit(page, allow_submit, result)
+            for _ in range(6):
+                if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+                    break
+                clicked = await _click_first_button(page, NEXT_BUTTON_TEXT, result["messages"], timeout=4000)
+                if not clicked:
+                    break
+                await page.wait_for_timeout(1200)
+                await _upload_resume_if_possible(page, resume_path, result["messages"])
+                await _fill_profile_defaults(page, result["messages"])
+
+            await _maybe_submit(page, allow_submit, result)
+        except Exception as exc:
+            result["status"] = "automation_error"
+            result["messages"].append(f"Company portal automation failed safely: {exc}")
         _update_job_after_submission(candidate, result)
         await _save_portal_storage_state(context, portal, apply_url, f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json")
         await browser.close()
