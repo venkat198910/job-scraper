@@ -78,14 +78,14 @@ jobs:
     # - name: Wait before scoring
     #   run: sleep 60
 
-    - name: Run job scorer
-      run: python score_jobs.py
+    # - name: Run job scorer
+    #   run: python score_jobs.py
 
-    - name: Wait before resume customization
-      run: sleep 60
+    # - name: Wait before resume customization
+    #   run: sleep 60
 
-    - name: Run resume customization
-      run: python custom_resume_generator.py
+    # - name: Run resume customization
+    #   run: python custom_resume_generator.py
 
     - name: Validate LinkedIn session secret
       run: |
