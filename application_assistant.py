@@ -117,10 +117,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
 
 
 def _candidate_age_minutes(candidate: ApplicationCandidate) -> float | None:
-    posted = _parse_datetime(candidate.posted_at) or _parse_datetime(candidate.scraped_at)
-    if not posted:
+    posted_at = _parse_datetime(candidate.posted_at)
+    scraped_at = _parse_datetime(candidate.scraped_at)
+    freshest = max(
+        [timestamp for timestamp in (posted_at, scraped_at) if timestamp is not None],
+        default=None,
+    )
+    if not freshest:
         return None
-    return (datetime.now(timezone.utc) - posted).total_seconds() / 60
+    return (datetime.now(timezone.utc) - freshest).total_seconds() / 60
 
 
 def _candidate_is_fresh(candidate: ApplicationCandidate, max_age_minutes: int | None) -> bool:
@@ -214,6 +219,15 @@ def fetch_candidates(
         )
         if not _candidate_is_fresh(candidate, max_age_minutes):
             skipped_freshness += 1
+            age_minutes = _candidate_age_minutes(candidate)
+            logging.info(
+                "Skipping candidate %s due to freshness window: posted_at=%s scraped_at=%s age_minutes=%s max_age_minutes=%s",
+                candidate.job_id,
+                candidate.posted_at or None,
+                candidate.scraped_at or None,
+                None if age_minutes is None else round(age_minutes, 1),
+                max_age_minutes,
+            )
             continue
         candidates.append(candidate)
 
