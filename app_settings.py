@@ -40,7 +40,7 @@ DEFAULT_SETTINGS = {
         "pythonExperience": "3+",
     },
     "applicationAutomation": {
-        "maxJobAgeMinutes": 120,
+        "maxJobAgeMinutes": 300,
         "maxDailyApplications": 30,
         "allowFinalSubmit": False,
         "allowPortalLogin": False,
