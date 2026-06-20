@@ -131,8 +131,8 @@ def fetch_candidates(limit: int, min_score: int, provider: str | None = "linkedi
 
 
 def candidate_pool_limit(limit: int, mode: str) -> int:
-    """Scan a wider pool for auto-apply because many top jobs are not Easy Apply."""
-    if mode != "auto-apply":
+    """Scan a wider pool because top jobs may not match the requested apply flow."""
+    if mode not in {"auto-apply", "prepare-company-portal"}:
         return limit
     return max(limit * 10, 50)
 
@@ -155,15 +155,23 @@ def _linkedin_storage_state_path() -> str | None:
     return _write_json_env_to_file("LINKEDIN_STORAGE_STATE_JSON", "linkedin_storage_state.json")
 
 
-def queue_candidate(candidate: ApplicationCandidate, status: str = "application_ready") -> bool:
+def queue_candidate(
+    candidate: ApplicationCandidate,
+    status: str = "application_ready",
+    apply_url: str | None = None,
+    portal: str | None = None,
+    notes: dict[str, Any] | None = None,
+) -> bool:
+    effective_apply_url = apply_url or candidate.apply_url
+    effective_portal = portal or detect_portal(effective_apply_url, candidate.provider)
     payload = {
         "job_id": candidate.job_id,
         "customized_resume_id": candidate.customized_resume_id,
         "application_type": candidate.application_type,
-        "portal": detect_portal(candidate.apply_url, candidate.provider),
+        "portal": effective_portal,
         "status": status,
         "run_mode": "review",
-        "apply_url": candidate.apply_url,
+        "apply_url": effective_apply_url,
         "resume_path": candidate.resume_link,
         "score": candidate.resume_score,
         "notes": {
@@ -171,6 +179,7 @@ def queue_candidate(candidate: ApplicationCandidate, status: str = "application_
             "company": candidate.company,
             "location": candidate.location,
             "submit_policy": "never_submit_without_manual_confirmation",
+            **(notes or {}),
         },
     }
 
@@ -262,6 +271,10 @@ async def _linkedin_login_visible(page: Any) -> bool:
     return False
 
 
+def _is_linkedin_url(url: str) -> bool:
+    return bool(re.search(r"(^https?://)?([^/]+\.)?linkedin\.com/", url or "", re.IGNORECASE))
+
+
 async def _wait_for_manual_linkedin_login(page: Any, context: Any, result: dict[str, Any], wait_seconds: int) -> bool:
     if wait_seconds <= 0:
         result["messages"].append("LinkedIn login required. Run again with --manual-login-wait after opening Chrome, then log in once.")
@@ -279,6 +292,106 @@ async def _wait_for_manual_linkedin_login(page: Any, context: Any, result: dict[
 
     result["messages"].append("Manual LinkedIn login was not completed before the wait timeout.")
     return False
+
+
+async def resolve_linkedin_company_apply_url(
+    candidate: ApplicationCandidate,
+    headless: bool = False,
+    manual_login_wait: int = 0,
+) -> dict[str, Any]:
+    """
+    Opens a LinkedIn job and follows the normal Apply button to discover the
+    company portal URL. Easy Apply jobs are intentionally left to Easy Apply mode.
+    """
+    from playwright.async_api import async_playwright
+
+    storage_state = _linkedin_storage_state_path()
+    result = {
+        "job_id": candidate.job_id,
+        "apply_url": candidate.apply_url,
+        "resolved_apply_url": None,
+        "status": "blocked",
+        "portal": "linkedin",
+        "messages": [],
+    }
+
+    async with async_playwright() as playwright:
+        browser = await _launch_chromium(playwright, headless=headless)
+        context_options = {}
+        if storage_state and Path(storage_state).exists():
+            context_options["storage_state"] = storage_state
+        context = await browser.new_context(**context_options)
+        page = await context.new_page()
+        await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(3000)
+
+        if await _linkedin_login_visible(page):
+            if await _wait_for_manual_linkedin_login(page, context, result, manual_login_wait):
+                await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(2000)
+            else:
+                result["status"] = "login_required"
+                await browser.close()
+                return result
+
+        easy_apply = page.locator(
+            f"a[href*='/jobs/view/{candidate.job_id}/apply/'][href*='openSDUIApplyFlow=true']"
+        )
+        if await easy_apply.count() > 0 or await page.get_by_role("button", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE)).count() > 0:
+            result["status"] = "easy_apply_available"
+            result["messages"].append("LinkedIn Easy Apply detected; use Easy Apply mode for this job.")
+            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+            await browser.close()
+            return result
+
+        apply_controls = page.locator(
+            "button:has-text('Apply'), a:has-text('Apply'), "
+            "button[aria-label*='Apply' i], a[aria-label*='Apply' i]"
+        )
+        if await apply_controls.count() == 0:
+            result["status"] = "no_external_apply"
+            result["messages"].append("No normal Apply control detected on LinkedIn.")
+            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+            await browser.close()
+            return result
+
+        existing_pages = set(context.pages)
+        try:
+            await apply_controls.first.click(timeout=15000)
+            result["messages"].append("Clicked LinkedIn normal Apply control.")
+        except Exception as exc:
+            result["status"] = "blocked"
+            result["messages"].append(f"LinkedIn Apply control was detected but could not be clicked: {exc}")
+            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+            await browser.close()
+            return result
+
+        await page.wait_for_timeout(5000)
+        candidate_pages = [candidate_page for candidate_page in context.pages if candidate_page not in existing_pages]
+        candidate_pages.insert(0, page)
+
+        for candidate_page in candidate_pages:
+            try:
+                await candidate_page.wait_for_load_state("domcontentloaded", timeout=10000)
+            except Exception:
+                pass
+            url = candidate_page.url
+            if url and not _is_linkedin_url(url) and url != "about:blank":
+                result["resolved_apply_url"] = url
+                result["apply_url"] = url
+                result["portal"] = detect_portal(url, "")
+                result["status"] = "external_apply_resolved"
+                result["messages"].append(f"Resolved company portal URL: {url}")
+                break
+
+        if result["status"] != "external_apply_resolved":
+            result["status"] = "external_apply_unresolved"
+            result["messages"].append("Clicked Apply, but no external company portal URL was captured.")
+
+        await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+        await browser.close()
+
+    return result
 
 
 async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: list[str]) -> bool:
@@ -899,20 +1012,42 @@ async def main() -> None:
             continue
 
         if args.mode == "prepare-company-portal":
+            apply_url = candidate.apply_url
             if detect_portal(candidate.apply_url, candidate.provider) == "linkedin":
-                logging.info("Skipping LinkedIn candidate %s in company portal mode.", candidate.job_id)
-                continue
+                resolve_result = await resolve_linkedin_company_apply_url(
+                    candidate,
+                    headless=effective_headless,
+                    manual_login_wait=args.manual_login_wait,
+                )
+                if resolve_result.get("status") != "external_apply_resolved":
+                    queue_candidate(candidate, status=str(resolve_result.get("status") or "company_portal_review"))
+                    results.append(resolve_result)
+                    print(json.dumps(resolve_result, indent=2))
+                    continue
+                apply_url = str(resolve_result["resolved_apply_url"])
+
             result = await prepare_company_portal(
-                apply_url=candidate.apply_url,
+                apply_url=apply_url,
                 resume_file=args.resume_file,
                 candidate=candidate,
                 headless=effective_headless,
                 allow_submit=effective_allow_submit,
                 allow_login=effective_allow_login,
             )
-            queue_candidate(candidate, status=result["status"])
+            queue_candidate(
+                candidate,
+                status=result["status"],
+                apply_url=apply_url,
+                portal=str(result.get("portal") or detect_portal(apply_url, candidate.provider)),
+                notes={"resolved_from": candidate.apply_url} if apply_url != candidate.apply_url else None,
+            )
             results.append(result)
             print(json.dumps(result, indent=2))
+            if result.get("status") in progress_statuses:
+                progress_count += 1
+                if progress_count >= args.limit:
+                    logging.info("Reached requested company portal progress limit: %s", args.limit)
+                    break
             continue
 
         if args.mode == "auto-apply":

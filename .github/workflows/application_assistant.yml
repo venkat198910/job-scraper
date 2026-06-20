@@ -65,11 +65,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
       - name: Run application assistant
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LINKEDIN_STORAGE_STATE_JSON: ${{ secrets.LINKEDIN_STORAGE_STATE_JSON }}
           APPLICATION_PORTAL_PASSWORD: ${{ secrets.APPLICATION_PORTAL_PASSWORD }}
+          APPLICATION_DEFAULT_ANSWERS_JSON: ${{ secrets.APPLICATION_DEFAULT_ANSWERS_JSON }}
         run: |
           PROVIDER="${{ inputs.provider }}"
           MODE="${{ inputs.mode }}"
