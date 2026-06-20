@@ -138,6 +138,24 @@ LINKEDIN_MIN_EXPERIENCE_YEARS = 6
 LINKEDIN_MAX_EXPERIENCE_YEARS = 12
 LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH = True
 
+# UAE jobs are useful only when the company can support an employment visa.
+# India jobs are not affected by this filter.
+LINKEDIN_UAE_REQUIRE_SPONSORSHIP = True
+LINKEDIN_UAE_SPONSORSHIP_KEYWORDS = [
+    "visa sponsorship",
+    "sponsorship provided",
+    "provide sponsorship",
+    "provides sponsorship",
+    "will sponsor",
+    "employment visa",
+    "work visa",
+    "visa provided",
+    "company sponsored visa",
+    "company-sponsored visa",
+    "immigration support",
+    "relocation support",
+]
+
 # Skip LinkedIn jobs that already have more than this many applicants.
 # Set to 0 to disable the applicant-count filter. If LinkedIn does not expose
 # an applicant count, the job is kept.

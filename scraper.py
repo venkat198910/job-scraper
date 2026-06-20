@@ -107,6 +107,47 @@ def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
 
     return any(min_years <= low <= max_years and high <= max_years for low, high in ranges)
 
+def _is_uae_location(*values: str | None) -> bool:
+    """Return true when a configured/search/result location is in the UAE."""
+    haystack = " ".join(str(value or "").lower() for value in values)
+    return any(
+        marker in haystack
+        for marker in (
+            "united arab emirates",
+            "uae",
+            "dubai",
+            "abu dhabi",
+            "sharjah",
+            "ajman",
+            "ras al khaimah",
+            "fujairah",
+            "umm al quwain",
+        )
+    )
+
+def _linkedin_uae_job_has_sponsorship(job_details: dict) -> bool:
+    """Keep UAE jobs only when sponsorship or visa support is explicitly offered."""
+    if not getattr(config, "LINKEDIN_UAE_REQUIRE_SPONSORSHIP", True):
+        return True
+
+    description = job_details.get("description") or ""
+    title = job_details.get("job_title") or ""
+    location = job_details.get("location") or ""
+    haystack = f"{title}\n{location}\n{description}".lower()
+    haystack = haystack.replace("–", "-").replace("—", "-")
+
+    negative_patterns = (
+        r"\b(no|not|without)\s+(visa\s+)?sponsorship\b",
+        r"\b(does\s+not|do\s+not|cannot|can't|unable\s+to)\s+(provide|offer|sponsor)",
+        r"\bmust\s+(already\s+)?(be\s+)?(authorized|eligible)\s+to\s+work\b",
+        r"\bexisting\s+(uae\s+)?work\s+(authorization|visa)\s+required\b",
+    )
+    if any(re.search(pattern, haystack) for pattern in negative_patterns):
+        return False
+
+    keywords = getattr(config, "LINKEDIN_UAE_SPONSORSHIP_KEYWORDS", [])
+    return any(str(keyword).lower() in haystack for keyword in keywords)
+
 def _parse_int(value: str) -> int | None:
     try:
         return int(value.replace(",", "").strip())
@@ -535,6 +576,12 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
                         job_id,
                         app_settings.get_experience_range()[0],
                         app_settings.get_experience_range()[1],
+                    )
+                    continue
+                if _is_uae_location(location, details.get("location")) and not _linkedin_uae_job_has_sponsorship(details):
+                    logging.info(
+                        "Skipping UAE job ID %s because the posting does not explicitly provide visa sponsorship.",
+                        job_id,
                     )
                     continue
                 if 'job_id' in details and details['job_id'] is not None:
