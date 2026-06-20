@@ -454,16 +454,24 @@ async def prepare_linkedin_easy_apply(
                 return result
 
         easy_apply = page.get_by_role("button", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
+        easy_apply_source = "button"
         if await easy_apply.count() == 0:
             easy_apply = page.locator("button:has-text('Easy Apply')")
+        if await easy_apply.count() == 0:
+            easy_apply = page.get_by_role("link", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
+            easy_apply_source = "link"
+        if await easy_apply.count() == 0:
+            easy_apply = page.locator("a[href*='/apply/'][href*='openSDUIApplyFlow=true']")
+            easy_apply_source = "apply link"
 
         if await easy_apply.count() > 0:
             try:
                 await easy_apply.first.click(timeout=15000)
-                result["messages"].append("Easy Apply button clicked.")
+                result["messages"].append(f"Easy Apply {easy_apply_source} clicked.")
+                await page.wait_for_timeout(3000)
             except PlaywrightTimeoutError:
                 result["status"] = "blocked"
-                result["messages"].append("Easy Apply button was detected but could not be clicked before timeout.")
+                result["messages"].append(f"Easy Apply {easy_apply_source} was detected but could not be clicked before timeout.")
                 await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
                 await browser.close()
                 return result
