@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
         "maxJobAgeMinutes": 60,
         "allowFinalSubmit": False,
         "allowPortalLogin": False,
+        "allowPortalRegister": False,
         "headlessBrowser": False,
     },
     "applicationAutoAnswers": {
@@ -224,6 +225,12 @@ def normalize_settings(value: Any) -> dict[str, Any]:
                 incoming_automation.get(
                     "allowPortalLogin",
                     defaults["applicationAutomation"]["allowPortalLogin"],
+                )
+            ),
+            "allowPortalRegister": bool(
+                incoming_automation.get(
+                    "allowPortalRegister",
+                    defaults["applicationAutomation"]["allowPortalRegister"],
                 )
             ),
             "headlessBrowser": bool(

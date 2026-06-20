@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import app_settings
 import config
@@ -20,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 APPLICATION_QUEUE_TABLE = "application_queue"
 APPLICATION_QUEUE_STORAGE_BUCKET = getattr(config, "SUPABASE_RESUME_STORAGE_BUCKET", "resumes")
 APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
+APPLICATION_SESSION_STORAGE_PREFIX = "application_sessions"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
 PORTAL_PATTERNS = {
@@ -153,6 +155,46 @@ def _linkedin_storage_state_path() -> str | None:
         return storage_state
 
     return _write_json_env_to_file("LINKEDIN_STORAGE_STATE_JSON", "linkedin_storage_state.json")
+
+
+def _safe_host_key(url: str) -> str:
+    host = urlparse(url).netloc.lower() or "unknown"
+    return re.sub(r"[^a-z0-9]+", "_", host).strip("_") or "unknown"
+
+
+def _portal_session_storage_path(portal: str, apply_url: str) -> str:
+    return f"{APPLICATION_SESSION_STORAGE_PREFIX}/{portal}_{_safe_host_key(apply_url)}.json"
+
+
+def _portal_storage_state_path(portal: str, apply_url: str) -> str | None:
+    env_path = os.environ.get(f"{portal.upper()}_STORAGE_STATE") or os.environ.get("PORTAL_STORAGE_STATE")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    storage_path = _portal_session_storage_path(portal, apply_url)
+    output_path = Path(tempfile.gettempdir()) / f"{portal}_{_safe_host_key(apply_url)}_storage_state.json"
+    try:
+        file_bytes = supabase_utils.supabase.storage.from_(APPLICATION_QUEUE_STORAGE_BUCKET).download(storage_path)
+        output_path.write_bytes(bytes(file_bytes))
+        logging.info("Loaded portal session from storage: %s", storage_path)
+        return str(output_path)
+    except Exception:
+        return None
+
+
+async def _save_portal_storage_state(context: Any, portal: str, apply_url: str, env_key: str, default_path: str) -> str:
+    state_path = await _save_context_state(context, env_key, default_path)
+    storage_path = _portal_session_storage_path(portal, apply_url)
+    try:
+        supabase_utils.supabase.storage.from_(APPLICATION_QUEUE_STORAGE_BUCKET).upload(
+            path=storage_path,
+            file=Path(state_path).read_bytes(),
+            file_options={"content-type": "application/json", "upsert": "true"},
+        )
+        logging.info("Saved portal session to storage: %s", storage_path)
+    except Exception as exc:
+        logging.warning("Could not save portal session to storage %s: %s", storage_path, exc)
+    return state_path
 
 
 def queue_candidate(
@@ -497,18 +539,62 @@ async def _fill_profile_defaults(page: Any, messages: list[str], scope: Any | No
         await _fill_label_if_present(page, label, value, messages, scope=scope)
 
 
+def _portal_credentials() -> tuple[str, str]:
+    profile = app_settings.get_application_profile()
+    email = (
+        os.environ.get("APPLICATION_PORTAL_EMAIL")
+        or os.environ.get("APPLICATION_EMAIL")
+        or profile.get("email")
+        or ""
+    )
+    password = os.environ.get("APPLICATION_PORTAL_PASSWORD", "")
+    return email.strip(), password.strip()
+
+
+async def _click_named_control(page: Any, pattern: re.Pattern[str], messages: list[str], timeout: int = 5000) -> bool:
+    for getter in [page.get_by_role("button", name=pattern), page.get_by_role("link", name=pattern)]:
+        if await getter.count() == 0:
+            continue
+        try:
+            await getter.first.click(timeout=timeout)
+            messages.append(f"Clicked control: {pattern.pattern}")
+            await page.wait_for_timeout(1500)
+            return True
+        except Exception:
+            try:
+                await getter.first.evaluate("(element) => element.click()", timeout=2000)
+                messages.append(f"Clicked control with DOM fallback: {pattern.pattern}")
+                await page.wait_for_timeout(1500)
+                return True
+            except Exception as exc:
+                messages.append(f"Detected control but could not click safely: {exc}")
+                return False
+    return False
+
+
+async def _detect_human_verification(page: Any) -> str | None:
+    content = ""
+    try:
+        content = await page.content()
+    except Exception:
+        return None
+    checks = [
+        (r"captcha|recaptcha|hcaptcha", "captcha_required"),
+        (r"verification code|verify your email|email verification|one-time|one time|otp", "email_or_otp_verification_required"),
+        (r"security question|multi-factor|two-factor|2fa|mfa", "mfa_required"),
+    ]
+    for pattern, status in checks:
+        if re.search(pattern, content, re.IGNORECASE):
+            return status
+    return None
+
+
 async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: list[str]) -> bool:
     if not allow_login:
         messages.append("Portal login was detected or possible, but login is disabled. Enable it in settings or pass --allow-login.")
         return False
 
-    email = (
-        os.environ.get("APPLICATION_PORTAL_EMAIL")
-        or os.environ.get("APPLICATION_EMAIL")
-        or app_settings.get_application_profile().get("email")
-        or ""
-    )
-    password = os.environ.get("APPLICATION_PORTAL_PASSWORD", "")
+    email, password = _portal_credentials()
     if not email or not password:
         messages.append("Portal login is allowed, but APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD is not fully configured.")
         return False
@@ -539,6 +625,122 @@ async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: 
         messages.append("Clicked portal login/continue.")
         await page.wait_for_timeout(2000)
     return True
+
+
+async def _register_portal_account_if_allowed(page: Any, allow_register: bool, messages: list[str]) -> bool:
+    if not allow_register:
+        messages.append("Portal account creation is disabled. Pass --allow-register to create first-time company accounts.")
+        return False
+
+    email, password = _portal_credentials()
+    profile = app_settings.get_application_profile()
+    if not email or not password:
+        messages.append("Portal registration is allowed, but APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD is not fully configured.")
+        return False
+
+    opened = await _click_named_control(
+        page,
+        re.compile(r"(create account|create an account|sign up|register|new user|start here)", re.IGNORECASE),
+        messages,
+        timeout=6000,
+    )
+    if not opened:
+        messages.append("No portal registration control detected.")
+        return False
+
+    field_values = {
+        "First Name": profile.get("firstName", ""),
+        "Last Name": profile.get("lastName", ""),
+        "Full Name": profile.get("fullName", ""),
+        "Name": profile.get("fullName", ""),
+        "Email": email,
+        "Email Address": email,
+        "Username": email,
+        "Password": password,
+        "Create Password": password,
+        "New Password": password,
+        "Confirm Password": password,
+        "Verify Password": password,
+        "Retype Password": password,
+    }
+    for label, value in field_values.items():
+        if value:
+            await _fill_label_if_present(page, label, value, messages)
+
+    selector_values = {
+        "input[name*='first' i], input[id*='first' i], input[autocomplete='given-name']": profile.get("firstName", ""),
+        "input[name*='last' i], input[id*='last' i], input[autocomplete='family-name']": profile.get("lastName", ""),
+        "input[name*='name' i], input[id*='name' i], input[autocomplete='name']": profile.get("fullName", ""),
+        "input[type='email'], input[name*='email' i], input[id*='email' i], input[autocomplete='email'], input[autocomplete='username']": email,
+    }
+    for selector, value in selector_values.items():
+        if not value:
+            continue
+        fields = page.locator(selector)
+        if await fields.count() > 0:
+            try:
+                await fields.first.fill(value, timeout=3000)
+            except Exception:
+                pass
+
+    password_inputs = page.locator("input[type='password']")
+    for index in range(min(await password_inputs.count(), 3)):
+        try:
+            await password_inputs.nth(index).fill(password, timeout=3000)
+        except Exception:
+            pass
+
+    await _click_named_control(
+        page,
+        re.compile(r"^(create account|register|sign up|submit|continue|next)$", re.IGNORECASE),
+        messages,
+        timeout=8000,
+    )
+    await page.wait_for_timeout(2500)
+
+    verification_status = await _detect_human_verification(page)
+    if verification_status:
+        messages.append(f"Registration reached human verification gate: {verification_status}")
+        return False
+
+    messages.append("Attempted first-time portal account registration.")
+    return True
+
+
+async def _ensure_portal_auth(
+    page: Any,
+    allow_login: bool,
+    allow_register: bool,
+    result: dict[str, Any],
+) -> None:
+    content = await page.content()
+    if not re.search(r"sign\s*in|log\s*in|login|create\s*account|register|sign\s*up", content, re.IGNORECASE):
+        return
+
+    verification_status = await _detect_human_verification(page)
+    if verification_status:
+        result["status"] = verification_status
+        result["messages"].append(f"Human verification required before portal automation can continue: {verification_status}")
+        return
+
+    logged_in = await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
+    await page.wait_for_timeout(2000)
+
+    if await _detect_human_verification(page):
+        result["status"] = str(await _detect_human_verification(page))
+        result["messages"].append("Login reached a human verification gate.")
+        return
+
+    post_login_content = await page.content()
+    if logged_in and not re.search(r"invalid password|incorrect|account not found|create\s*account|register|sign\s*up", post_login_content, re.IGNORECASE):
+        result["messages"].append("Portal login appears complete or in progress.")
+        return
+
+    registered = await _register_portal_account_if_allowed(page, allow_register, result["messages"])
+    if registered:
+        result["messages"].append("Portal registration attempted; continuing application flow.")
+    else:
+        result["status"] = "portal_auth_required"
 
 
 async def _detect_required_unfilled(page: Any, scope: Any | None = None) -> list[str]:
@@ -829,6 +1031,7 @@ async def prepare_workday_profile(
     headless: bool = False,
     allow_submit: bool = False,
     allow_login: bool = False,
+    allow_register: bool = False,
 ) -> dict[str, Any]:
     """
     Opens a Workday application/profile page, uploads the selected resume when possible,
@@ -840,7 +1043,7 @@ async def prepare_workday_profile(
         raise ValueError("The provided URL does not look like a Workday application URL.")
 
     resume_path = _first_existing_resume_path(resume_file, candidate)
-    storage_state = os.environ.get("WORKDAY_STORAGE_STATE")
+    storage_state = _portal_storage_state_path("workday", apply_url)
     profile_defaults = _load_profile_defaults()
     result = {
         "job_id": candidate.job_id if candidate else None,
@@ -860,9 +1063,13 @@ async def prepare_workday_profile(
         page = await context.new_page()
         await page.goto(apply_url, wait_until="domcontentloaded", timeout=90000)
 
-        if re.search(r"sign\s*in|login|create\s*account", await page.content(), re.IGNORECASE):
-            result["messages"].append("Workday login/create-account step detected. Complete it manually first.")
-            await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
+        if re.search(r"sign\s*in|login|create\s*account|register", await page.content(), re.IGNORECASE):
+            result["messages"].append("Workday login/create-account step detected.")
+            await _ensure_portal_auth(page, allow_login, allow_register, result)
+            if result["status"] in {"portal_auth_required", "captcha_required", "email_or_otp_verification_required", "mfa_required"}:
+                await _save_portal_storage_state(context, "workday", apply_url, "WORKDAY_STORAGE_STATE_OUT", "workday_storage_state.json")
+                await browser.close()
+                return result
 
         for button_name in [
             r"Apply",
@@ -897,7 +1104,7 @@ async def prepare_workday_profile(
         await _maybe_submit(page, allow_submit, result)
         _update_job_after_submission(candidate, result)
 
-        await context.storage_state(path=os.environ.get("WORKDAY_STORAGE_STATE_OUT", "workday_storage_state.json"))
+        await _save_portal_storage_state(context, "workday", apply_url, "WORKDAY_STORAGE_STATE_OUT", "workday_storage_state.json")
         await browser.close()
 
     return result
@@ -910,6 +1117,7 @@ async def prepare_company_portal(
     headless: bool = False,
     allow_submit: bool = False,
     allow_login: bool = False,
+    allow_register: bool = False,
 ) -> dict[str, Any]:
     portal = detect_portal(apply_url, candidate.provider if candidate else "")
     if not _is_http_url(apply_url):
@@ -930,12 +1138,13 @@ async def prepare_company_portal(
             headless=headless,
             allow_submit=allow_submit,
             allow_login=allow_login,
+            allow_register=allow_register,
         )
 
     from playwright.async_api import async_playwright
 
     resume_path = _first_existing_resume_path(resume_file, candidate)
-    storage_state = os.environ.get(f"{portal.upper()}_STORAGE_STATE") or os.environ.get("PORTAL_STORAGE_STATE")
+    storage_state = _portal_storage_state_path(portal, apply_url)
     result = {
         "job_id": candidate.job_id if candidate else None,
         "apply_url": apply_url,
@@ -964,7 +1173,11 @@ async def prepare_company_portal(
             result["messages"].append(f"Could not open company portal URL: {exc}")
             await browser.close()
             return result
-        await _fill_portal_login_if_allowed(page, allow_login, result["messages"])
+        await _ensure_portal_auth(page, allow_login, allow_register, result)
+        if result["status"] in {"portal_auth_required", "captcha_required", "email_or_otp_verification_required", "mfa_required"}:
+            await _save_portal_storage_state(context, portal, apply_url, f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json")
+            await browser.close()
+            return result
 
         await _click_first_button(page, re.compile(r"^(apply|apply now|start application)$", re.IGNORECASE), result["messages"], timeout=5000)
         await _upload_resume_if_possible(page, resume_path, result["messages"])
@@ -982,7 +1195,7 @@ async def prepare_company_portal(
 
         await _maybe_submit(page, allow_submit, result)
         _update_job_after_submission(candidate, result)
-        await context.storage_state(path=os.environ.get(f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json"))
+        await _save_portal_storage_state(context, portal, apply_url, f"{portal.upper()}_STORAGE_STATE_OUT", f"{portal}_storage_state.json")
         await browser.close()
 
     return result
@@ -1031,6 +1244,11 @@ async def main() -> None:
         help="Allow filling and submitting portal login forms using APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD.",
     )
     parser.add_argument(
+        "--allow-register",
+        action="store_true",
+        help="Allow creating first-time company portal accounts using configured application profile and portal credentials.",
+    )
+    parser.add_argument(
         "--manual-login-wait",
         type=int,
         default=0,
@@ -1041,6 +1259,7 @@ async def main() -> None:
     effective_headless = args.headless or bool(automation_settings.get("headlessBrowser"))
     effective_allow_submit = args.allow_submit or bool(automation_settings.get("allowFinalSubmit"))
     effective_allow_login = args.allow_login or bool(automation_settings.get("allowPortalLogin"))
+    effective_allow_register = args.allow_register or bool(automation_settings.get("allowPortalRegister"))
 
     if args.mode in {"prepare-workday-profile", "prepare-company-portal"} and args.apply_url:
         if args.mode == "prepare-workday-profile":
@@ -1050,6 +1269,7 @@ async def main() -> None:
                 headless=effective_headless,
                 allow_submit=effective_allow_submit,
                 allow_login=effective_allow_login,
+                allow_register=effective_allow_register,
             )
         else:
             result = await prepare_company_portal(
@@ -1058,6 +1278,7 @@ async def main() -> None:
                 headless=effective_headless,
                 allow_submit=effective_allow_submit,
                 allow_login=effective_allow_login,
+                allow_register=effective_allow_register,
             )
         print(json.dumps(result, indent=2))
         if result.get("status") == "submitted":
@@ -1095,6 +1316,7 @@ async def main() -> None:
                 headless=effective_headless,
                 allow_submit=effective_allow_submit,
                 allow_login=effective_allow_login,
+                allow_register=effective_allow_register,
             )
             queue_candidate(candidate, status=result["status"])
             results.append(result)
@@ -1123,6 +1345,7 @@ async def main() -> None:
                 headless=effective_headless,
                 allow_submit=effective_allow_submit,
                 allow_login=effective_allow_login,
+                allow_register=effective_allow_register,
             )
             queue_candidate(
                 candidate,

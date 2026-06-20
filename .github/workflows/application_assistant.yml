@@ -42,6 +42,11 @@ on:
         required: true
         default: false
         type: boolean
+      allow_register:
+        description: "Allow creating first-time company portal accounts"
+        required: true
+        default: false
+        type: boolean
       allow_submit:
         description: "Allow final submit when no unknown required fields are detected"
         required: true
@@ -73,6 +78,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LINKEDIN_STORAGE_STATE_JSON: ${{ secrets.LINKEDIN_STORAGE_STATE_JSON }}
+          APPLICATION_PORTAL_EMAIL: ${{ secrets.APPLICATION_PORTAL_EMAIL }}
           APPLICATION_PORTAL_PASSWORD: ${{ secrets.APPLICATION_PORTAL_PASSWORD }}
           APPLICATION_DEFAULT_ANSWERS_JSON: ${{ secrets.APPLICATION_DEFAULT_ANSWERS_JSON }}
         run: |
@@ -93,6 +99,9 @@ jobs:
           fi
           if [ "${{ inputs.allow_login }}" = "true" ]; then
             ARGS+=(--allow-login)
+          fi
+          if [ "${{ inputs.allow_register }}" = "true" ]; then
+            ARGS+=(--allow-register)
           fi
           if [ "${{ inputs.allow_submit }}" = "true" ]; then
             ARGS+=(--allow-submit)
