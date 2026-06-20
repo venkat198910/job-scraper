@@ -1,4 +1,4 @@
-name: Hourly Job Pipeline
+name: Job Pipeline
 
 on:
   schedule:
@@ -9,7 +9,7 @@ on:
 
 
 concurrency:
-  group: hourly-job-pipeline
+  group: job-pipeline
   cancel-in-progress: false
 
 jobs:
