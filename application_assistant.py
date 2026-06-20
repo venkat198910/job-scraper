@@ -130,6 +130,13 @@ def fetch_candidates(limit: int, min_score: int, provider: str | None = "linkedi
     return candidates
 
 
+def candidate_pool_limit(limit: int, mode: str) -> int:
+    """Scan a wider pool for auto-apply because many top jobs are not Easy Apply."""
+    if mode != "auto-apply":
+        return limit
+    return max(limit * 10, 50)
+
+
 def _write_json_env_to_file(env_key: str, output_path: str) -> str | None:
     value = os.environ.get(env_key, "").strip()
     if not value:
@@ -436,6 +443,7 @@ async def prepare_linkedin_easy_apply(
         context = await browser.new_context(**context_options)
         page = await context.new_page()
         await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(3000)
 
         if await _linkedin_login_visible(page):
             if await _wait_for_manual_linkedin_login(page, context, result, manual_login_wait):
@@ -445,20 +453,27 @@ async def prepare_linkedin_easy_apply(
                 await browser.close()
                 return result
 
-        if await _page_has_button(page, re.compile(r"^Apply$", re.IGNORECASE)):
-            result["status"] = "external_apply"
-            result["messages"].append("LinkedIn shows a normal Apply button, not Easy Apply.")
-            await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
-            await browser.close()
-            return result
+        easy_apply = page.get_by_role("button", name=re.compile(r"\bEasy Apply\b", re.IGNORECASE))
+        if await easy_apply.count() == 0:
+            easy_apply = page.locator("button:has-text('Easy Apply')")
 
-        try:
-            easy_apply = page.get_by_role("button", name=re.compile("Easy Apply", re.IGNORECASE)).first
-            await easy_apply.click(timeout=15000)
-        except PlaywrightTimeoutError:
+        if await easy_apply.count() > 0:
+            try:
+                await easy_apply.first.click(timeout=15000)
+                result["messages"].append("Easy Apply button clicked.")
+            except PlaywrightTimeoutError:
+                result["status"] = "blocked"
+                result["messages"].append("Easy Apply button was detected but could not be clicked before timeout.")
+                await _save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+                await browser.close()
+                return result
+        else:
             if await _linkedin_login_visible(page):
                 result["status"] = "login_required"
                 result["messages"].append("LinkedIn sign-in prompt is visible, so Easy Apply cannot be prepared yet.")
+            elif await _page_has_button(page, re.compile(r"^Apply$", re.IGNORECASE)):
+                result["status"] = "external_apply"
+                result["messages"].append("LinkedIn shows a normal Apply button, not Easy Apply.")
             else:
                 result["status"] = "not_easy_apply"
                 result["messages"].append("Easy Apply button was not detected.")
@@ -786,7 +801,7 @@ async def main() -> None:
         return
 
     provider = None if args.provider == "all" else args.provider
-    candidates = fetch_candidates(limit=args.limit, min_score=args.min_score, provider=provider)
+    candidates = fetch_candidates(limit=candidate_pool_limit(args.limit, args.mode), min_score=args.min_score, provider=provider)
     print_candidates(candidates)
 
     if args.mode == "plan":
@@ -799,6 +814,8 @@ async def main() -> None:
         return
 
     results: list[dict[str, Any]] = []
+    progress_statuses = {"manual_review_required", "submitted"}
+    progress_count = 0
 
     for candidate in candidates:
         if args.mode == "prepare-workday-profile":
@@ -849,6 +866,11 @@ async def main() -> None:
             queue_candidate(candidate, status=result["status"])
             results.append(result)
             print(json.dumps(result, indent=2))
+            if result.get("status") in progress_statuses:
+                progress_count += 1
+                if progress_count >= args.limit:
+                    logging.info("Reached requested auto-apply progress limit: %s", args.limit)
+                    break
             continue
 
         if candidate.provider != "linkedin":
@@ -870,7 +892,6 @@ async def main() -> None:
         print("\nStopped before final submit for every candidate.")
 
     if args.mode == "auto-apply":
-        progress_statuses = {"manual_review_required", "submitted"}
         progressed = [result for result in results if result.get("status") in progress_statuses]
         if candidates and not progressed:
             statuses = sorted({str(result.get("status")) for result in results})
