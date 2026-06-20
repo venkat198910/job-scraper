@@ -121,5 +121,19 @@ jobs:
     - name: Run LinkedIn Easy Apply assistant
       run: python application_assistant.py --mode auto-apply --provider linkedin --limit 5 --min-score 80 --headless --allow-submit
 
+    - name: Validate company portal credentials
+      run: |
+        python - <<'PY'
+        import os
+        import sys
+
+        if not (os.environ.get("APPLICATION_PORTAL_PASSWORD") or "").strip():
+            print("APPLICATION_PORTAL_PASSWORD secret is missing.")
+            print("Create it under Settings > Secrets and variables > Actions before enabling company portal auto-register/apply.")
+            sys.exit(1)
+
+        print("Company portal password secret is present.")
+        PY
+
     - name: Run Company Portal assistant
       run: python application_assistant.py --mode prepare-company-portal --provider all --limit 5 --min-score 80 --headless --allow-login --allow-register --allow-submit

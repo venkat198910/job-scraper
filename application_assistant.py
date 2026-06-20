@@ -551,6 +551,18 @@ def _portal_credentials() -> tuple[str, str]:
     return email.strip(), password.strip()
 
 
+def _portal_credential_status() -> str | None:
+    email, password = _portal_credentials()
+    missing = []
+    if not email:
+        missing.append("APPLICATION_PORTAL_EMAIL or application profile email")
+    if not password:
+        missing.append("APPLICATION_PORTAL_PASSWORD")
+    if missing:
+        return "Missing portal credential(s): " + ", ".join(missing)
+    return None
+
+
 async def _click_named_control(page: Any, pattern: re.Pattern[str], messages: list[str], timeout: int = 5000) -> bool:
     for getter in [page.get_by_role("button", name=pattern), page.get_by_role("link", name=pattern)]:
         if await getter.count() == 0:
@@ -595,8 +607,9 @@ async def _fill_portal_login_if_allowed(page: Any, allow_login: bool, messages: 
         return False
 
     email, password = _portal_credentials()
-    if not email or not password:
-        messages.append("Portal login is allowed, but APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD is not fully configured.")
+    credential_error = _portal_credential_status()
+    if credential_error:
+        messages.append(f"Portal login is allowed, but credentials are incomplete. {credential_error}.")
         return False
 
     email_inputs = page.locator(
@@ -634,8 +647,9 @@ async def _register_portal_account_if_allowed(page: Any, allow_register: bool, m
 
     email, password = _portal_credentials()
     profile = app_settings.get_application_profile()
-    if not email or not password:
-        messages.append("Portal registration is allowed, but APPLICATION_PORTAL_EMAIL/APPLICATION_PORTAL_PASSWORD is not fully configured.")
+    credential_error = _portal_credential_status()
+    if credential_error:
+        messages.append(f"Portal registration is allowed, but credentials are incomplete. {credential_error}.")
         return False
 
     opened = await _click_named_control(
