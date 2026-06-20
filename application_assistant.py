@@ -296,6 +296,59 @@ async def _upload_resume_if_possible(page: Any, resume_path: Path, messages: lis
         return False
 
 
+async def _fill_field_safely(field: Any, value: str, label: str, messages: list[str]) -> bool:
+    try:
+        tag_name = (await field.evaluate("el => el.tagName.toLowerCase()", timeout=2000)).lower()
+    except Exception as exc:
+        messages.append(f"Detected field for {label}, but could not inspect it: {exc}")
+        return False
+
+    try:
+        if tag_name == "select":
+            try:
+                await field.select_option(label=value, timeout=3000)
+            except Exception:
+                try:
+                    await field.select_option(value=value, timeout=3000)
+                except Exception:
+                    matched_value = await field.evaluate(
+                        """(el, wanted) => {
+                            const normalized = String(wanted).trim().toLowerCase();
+                            const option = Array.from(el.options).find((item) =>
+                                item.textContent.trim().toLowerCase().includes(normalized)
+                            );
+                            return option ? option.value : null;
+                        }""",
+                        value,
+                    )
+                    if not matched_value:
+                        raise
+                    await field.select_option(value=matched_value, timeout=3000)
+            messages.append(f"Selected configured answer for: {label}")
+            return True
+
+        input_type = (await field.get_attribute("type")) or ""
+        if tag_name == "input" and input_type.lower() in {"checkbox", "radio"}:
+            if str(value).strip().lower() in {"yes", "true", "1", "checked"}:
+                await field.check(timeout=3000)
+                messages.append(f"Checked configured answer for: {label}")
+                return True
+            messages.append(f"Detected {input_type} for {label}; left unchecked for manual review.")
+            return False
+
+        contenteditable = (await field.get_attribute("contenteditable")) or ""
+        if tag_name in {"input", "textarea"} or contenteditable.lower() == "true":
+            await field.fill(str(value), timeout=3000)
+            messages.append(f"Filled configured answer for: {label}")
+            return True
+
+        messages.append(f"Detected unsupported field type '{tag_name}' for {label}; left for manual review.")
+        return False
+    except Exception as exc:
+        messages.append(f"Could not fill configured answer for {label}; left for manual review: {exc}")
+        return False
+
+
 async def _fill_profile_defaults(page: Any, messages: list[str]) -> None:
     for label, value in _load_profile_defaults().items():
         await _fill_label_if_present(page, label, value, messages)
@@ -501,14 +554,12 @@ async def prepare_linkedin_easy_apply(
                 "input[name*='phone' i], input[id*='phone' i], input[aria-label*='phone' i]"
             )
             if await phone_inputs.count() > 0:
-                await phone_inputs.first.fill(phone_number)
-                result["messages"].append("Phone field filled.")
+                await _fill_field_safely(phone_inputs.first, phone_number, "Phone", result["messages"])
 
         for label, value in default_answers.items():
             field = page.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
             if await field.count() > 0:
-                await field.first.fill(str(value))
-                result["messages"].append(f"Filled configured answer for: {label}")
+                await _fill_field_safely(field.first, str(value), label, result["messages"])
 
         for _ in range(4):
             if await page.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
