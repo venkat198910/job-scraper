@@ -809,15 +809,8 @@ async def _fill_field_safely(field: Any, value: str, label: str, messages: list[
             await field.fill(fill_value, timeout=3000)
             role = (await field.get_attribute("role")) or ""
             autocomplete = (await field.get_attribute("aria-autocomplete")) or ""
-            if role.lower() == "combobox" or autocomplete:
-                try:
-                    await field.press("ArrowDown", timeout=1000)
-                    await field.press("Enter", timeout=1000)
-                except Exception:
-                    try:
-                        await field.press("Enter", timeout=1000)
-                    except Exception:
-                        pass
+            if _should_select_autocomplete_option(label, role, autocomplete):
+                await _select_autocomplete_option(field, fill_value)
             messages.append(f"Filled configured answer for: {label}")
             return True
 
@@ -1144,6 +1137,42 @@ def _should_use_plain_decimal(label: str, input_type: str, value: str) -> bool:
     )
 
 
+def _should_select_autocomplete_option(label: str, role: str, autocomplete: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
+    if role.lower() == "combobox" or bool(autocomplete):
+        return True
+    return any(token in normalized for token in ["location", "city", "country", "address"])
+
+
+async def _select_autocomplete_option(field: Any, value: str) -> None:
+    try:
+        await field.press("ArrowDown", timeout=1000)
+        await field.press("Enter", timeout=1000)
+        return
+    except Exception:
+        pass
+
+    try:
+        await field.evaluate(
+            """(el, wanted) => {
+                const normalizedWanted = String(wanted || '').trim().toLowerCase();
+                const option = Array.from(document.querySelectorAll('[role="option"], [role="listbox"] *'))
+                    .find((node) => {
+                        const text = (node.innerText || node.textContent || '').trim();
+                        const rect = node.getBoundingClientRect();
+                        return text
+                            && rect.width > 0
+                            && rect.height > 0
+                            && (!normalizedWanted || text.toLowerCase().includes(normalizedWanted));
+                    });
+                if (option) option.click();
+            }""",
+            value,
+        )
+    except Exception:
+        pass
+
+
 def _answer_for_required_label(label: str) -> str | None:
     normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
     answers = app_settings.get_application_auto_answers()
@@ -1169,9 +1198,13 @@ def _answer_for_required_label(label: str) -> str | None:
         return "Yes"
     if "employment status" in normalized:
         return answers.get("employmentType", "Full-time")
+    if "rest" in normalized or "representational state transfer" in normalized:
+        return profile.get("devopsExperience", "") or profile.get("sreExperience", "") or "7"
+    if "java" in normalized:
+        return "0"
     if "total work experience" in normalized or "total years of experience" in normalized:
         return profile.get("totalExperience", "9.6")
-    if "relevant work experience" in normalized:
+    if "relevant work experience" in normalized or "years of work experience" in normalized or "years of experience" in normalized:
         return profile.get("devopsExperience", "") or profile.get("sreExperience", "") or "7"
     if "country" in normalized:
         return answers.get("country", "India")
@@ -1179,7 +1212,7 @@ def _answer_for_required_label(label: str) -> str | None:
         return answers.get("currentLocation") or profile.get("currentLocation", "")
     if "city" in normalized:
         return profile.get("addressCity", "")
-    if "state" in normalized:
+    if normalized == "state" or normalized.startswith("state ") or " address state" in normalized:
         return profile.get("addressState", "")
     if "phone" in normalized or "mobile" in normalized:
         return profile.get("phone", "")
