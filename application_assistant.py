@@ -22,6 +22,7 @@ APPLICATION_QUEUE_TABLE = "application_queue"
 APPLICATION_QUEUE_STORAGE_BUCKET = getattr(config, "SUPABASE_RESUME_STORAGE_BUCKET", "resumes")
 APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
 APPLICATION_SESSION_STORAGE_PREFIX = "application_sessions"
+APPLICATION_DEBUG_DIR = Path(tempfile.gettempdir()) / "jobtrack_application_debug"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
 PORTAL_PATTERNS = {
@@ -486,6 +487,24 @@ async def _visible_button_labels(scope: Any, limit: int = 12) -> list[str]:
         except Exception:
             continue
     return labels
+
+
+async def _save_application_debug_artifacts(page: Any, result: dict[str, Any], reason: str, scope: Any | None = None) -> None:
+    APPLICATION_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    job_id = str(result.get("job_id") or "unknown")
+    safe_reason = re.sub(r"[^a-z0-9]+", "_", reason.lower()).strip("_") or "debug"
+    prefix = APPLICATION_DEBUG_DIR / f"{job_id}_{safe_reason}"
+    try:
+        await page.screenshot(path=str(prefix.with_suffix(".png")), full_page=True)
+        Path(prefix.with_suffix(".html")).write_text(await page.content(), encoding="utf-8")
+        result["messages"].append(f"Saved debug artifacts: {prefix.with_suffix('.png')} and {prefix.with_suffix('.html')}")
+    except Exception as exc:
+        result["messages"].append(f"Could not save debug artifacts for {reason}: {exc}")
+    if scope is not None:
+        try:
+            await scope.screenshot(path=str(APPLICATION_DEBUG_DIR / f"{job_id}_{safe_reason}_modal.png"))
+        except Exception:
+            pass
 
 
 async def _launch_chromium(playwright: Any, headless: bool) -> Any:
@@ -1259,6 +1278,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     if await submit.count() == 0:
         result["status"] = "manual_review_required"
         result["messages"].append("No final submit/apply button detected.")
+        await _save_application_debug_artifacts(page, result, "no_final_submit", scope=root)
         return
 
     if not allow_submit:
