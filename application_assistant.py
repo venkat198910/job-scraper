@@ -31,7 +31,10 @@ PORTAL_PATTERNS = {
     "ashby": re.compile(r"(ashbyhq\.com|jobs\.ashbyhq\.com)", re.IGNORECASE),
     "smartrecruiters": re.compile(r"(smartrecruiters\.com|jobs\.smartrecruiters\.com)", re.IGNORECASE),
 }
-NEXT_BUTTON_TEXT = re.compile(r"^(next|continue|save and continue|review|review application)$", re.IGNORECASE)
+NEXT_BUTTON_TEXT = re.compile(
+    r"^(next|continue|continue to next step|save and continue|review|review application|review your application)$",
+    re.IGNORECASE,
+)
 FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply|send application)$", re.IGNORECASE)
 
 
@@ -437,10 +440,25 @@ async def _click_first_button(
     root = scope or page
     button = root.get_by_role("button", name=pattern)
     if await button.count() == 0:
-        return False
+        if pattern.pattern == NEXT_BUTTON_TEXT.pattern:
+            button = root.locator(
+                "button[aria-label*='Next'], "
+                "button[aria-label*='Continue'], "
+                "button[aria-label*='Review'], "
+                "button:has-text('Next'), "
+                "button:has-text('Continue'), "
+                "button:has-text('Review'), "
+                "button:has-text('Save and continue')"
+            )
+        if await button.count() == 0:
+            return False
     try:
         await button.first.click(timeout=timeout)
-        messages.append(f"Clicked button: {pattern.pattern}")
+        try:
+            label = await button.first.inner_text(timeout=1000)
+        except Exception:
+            label = await button.first.get_attribute("aria-label") or pattern.pattern
+        messages.append(f"Clicked button: {label.strip() or pattern.pattern}")
         return True
     except Exception as exc:
         try:
@@ -450,6 +468,24 @@ async def _click_first_button(
         except Exception:
             messages.append(f"Detected button but could not click safely: {exc}")
             return False
+
+
+async def _visible_button_labels(scope: Any, limit: int = 12) -> list[str]:
+    labels: list[str] = []
+    buttons = scope.locator("button")
+    for index in range(min(await buttons.count(), limit)):
+        button = buttons.nth(index)
+        try:
+            if not await button.is_visible(timeout=500):
+                continue
+            text = (await button.inner_text(timeout=500)).strip()
+            aria = ((await button.get_attribute("aria-label")) or "").strip()
+            label = text or aria
+            if label:
+                labels.append(label)
+        except Exception:
+            continue
+    return labels
 
 
 async def _launch_chromium(playwright: Any, headless: bool) -> Any:
@@ -1360,7 +1396,7 @@ async def prepare_linkedin_easy_apply(
             if await field.count() > 0:
                 await _fill_field_safely(field.first, str(value), label, result["messages"])
 
-        for _ in range(4):
+        for _ in range(8):
             application_scope = await _application_scope(page)
             if await application_scope.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
                 break
@@ -1372,8 +1408,11 @@ async def prepare_linkedin_easy_apply(
                 scope=application_scope,
             )
             if not clicked:
+                visible_buttons = await _visible_button_labels(application_scope)
+                if visible_buttons:
+                    result["messages"].append(f"Could not advance Easy Apply step. Visible buttons: {visible_buttons}")
                 break
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(2000)
             application_scope = await _application_scope(page)
             await _upload_resume_if_possible(page, resume_path, result["messages"], scope=application_scope)
             if phone_number:
