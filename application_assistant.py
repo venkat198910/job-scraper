@@ -799,7 +799,10 @@ async def _fill_field_safely(field: Any, value: str, label: str, messages: list[
 
         contenteditable = (await field.get_attribute("contenteditable")) or ""
         if tag_name in {"input", "textarea"} or contenteditable.lower() == "true":
-            await field.fill(str(value), timeout=3000)
+            fill_value = str(value)
+            if _should_use_plain_decimal(label, input_type, fill_value):
+                fill_value = _decimal_for_numeric_field(fill_value)
+            await field.fill(fill_value, timeout=3000)
             role = (await field.get_attribute("role")) or ""
             autocomplete = (await field.get_attribute("aria-autocomplete")) or ""
             if role.lower() == "combobox" or autocomplete:
@@ -1114,6 +1117,29 @@ def _digits_for_lpa(value: str) -> str:
     return re.sub(r"[^\d]", "", value) or value
 
 
+def _decimal_for_numeric_field(value: str) -> str:
+    match = re.search(r"\d+(?:\.\d+)?", str(value or ""))
+    return match.group(0) if match else str(value)
+
+
+def _should_use_plain_decimal(label: str, input_type: str, value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
+    if input_type.lower() == "number":
+        return True
+    if not re.search(r"[a-zA-Z]", str(value or "")):
+        return False
+    return any(
+        token in normalized
+        for token in [
+            "ctc",
+            "notice period",
+            "years of experience",
+            "year of experience",
+            "how many years",
+        ]
+    )
+
+
 def _answer_for_required_label(label: str) -> str | None:
     normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
     answers = app_settings.get_application_auto_answers()
@@ -1130,7 +1156,7 @@ def _answer_for_required_label(label: str) -> str | None:
     if "available to start" in normalized or "availability" in normalized or "available from" in normalized:
         return answers.get("availableFrom", "After 30 days notice")
     if "notice" in normalized:
-        return answers.get("noticePeriod", "")
+        return _decimal_for_numeric_field(answers.get("noticePeriod", ""))
     if "how did you hear" in normalized:
         return "LinkedIn"
     if "specially able" in normalized or "disability" in normalized:
