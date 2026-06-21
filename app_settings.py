@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import re
 from typing import Any
 
 import config
@@ -81,6 +82,34 @@ DEFAULT_SETTINGS = {
         "uaeCurrentMonthly": "10300 AED",
         "uaeExpectedAnnual": "300000 AED",
         "uaeExpectedMonthly": "25000 AED",
+    },
+    "applicationQuestionAnswers": {
+        "microservices": "5",
+        "representational state transfer": "7",
+        "rest": "7",
+        "java": "0",
+        "devops": "7",
+        "sre": "7",
+        "site reliability": "7",
+        "aws": "6",
+        "cloud": "6",
+        "kubernetes": "5",
+        "terraform": "5",
+        "python": "3",
+        "ci cd": "7",
+        "cicd": "7",
+        "jenkins": "7",
+        "github actions": "5",
+        "docker": "5",
+        "linux": "8",
+        "ansible": "4",
+        "prometheus": "5",
+        "grafana": "5",
+        "notice period": "30",
+        "current ctc": "31",
+        "expected ctc": "50",
+        "current gross compensation": "31",
+        "expected gross compensation": "50",
     },
     "advanced": {
         "llmMaxRpm": getattr(config, "LLM_MAX_RPM", 10),
@@ -194,6 +223,11 @@ def normalize_settings(value: Any) -> dict[str, Any]:
     incoming_profile = incoming.get("applicationProfile") if isinstance(incoming.get("applicationProfile"), dict) else {}
     incoming_automation = incoming.get("applicationAutomation") if isinstance(incoming.get("applicationAutomation"), dict) else {}
     incoming_auto_answers = incoming.get("applicationAutoAnswers") if isinstance(incoming.get("applicationAutoAnswers"), dict) else {}
+    incoming_question_answers = (
+        incoming.get("applicationQuestionAnswers")
+        if isinstance(incoming.get("applicationQuestionAnswers"), dict)
+        else {}
+    )
 
     return {
         "locations": _clean_string_list(incoming.get("locations"), defaults["locations"]),
@@ -253,6 +287,10 @@ def normalize_settings(value: Any) -> dict[str, Any]:
             key: _string_value(incoming_auto_answers.get(key), default_value)
             for key, default_value in defaults["applicationAutoAnswers"].items()
         },
+        "applicationQuestionAnswers": _normalize_question_answers(
+            incoming_question_answers,
+            defaults["applicationQuestionAnswers"],
+        ),
         "advanced": {
             "llmMaxRpm": _bounded_int(incoming_advanced.get("llmMaxRpm"), defaults["advanced"]["llmMaxRpm"], 1, 120),
             "llmMaxRetries": _bounded_int(incoming_advanced.get("llmMaxRetries"), defaults["advanced"]["llmMaxRetries"], 0, 10),
@@ -388,6 +426,48 @@ def get_application_automation() -> dict[str, Any]:
 
 def get_application_auto_answers() -> dict[str, str]:
     return get_app_settings()["applicationAutoAnswers"]
+
+
+def normalize_question_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _normalize_question_answers(value: Any, fallback: dict[str, str]) -> dict[str, str]:
+    answers: dict[str, str] = {}
+    for source in [fallback, value if isinstance(value, dict) else {}]:
+        for raw_key, raw_answer in source.items():
+            key = normalize_question_key(raw_key)
+            answer = str(raw_answer or "").strip()
+            if key and answer:
+                answers[key] = answer
+    return answers
+
+
+def get_application_question_answers() -> dict[str, str]:
+    return get_app_settings()["applicationQuestionAnswers"]
+
+
+def find_application_question_answer(label: str) -> str | None:
+    normalized = normalize_question_key(label)
+    if not normalized:
+        return None
+
+    answers = get_application_question_answers()
+    exact = answers.get(normalized)
+    if exact:
+        return exact
+
+    normalized_tokens = set(normalized.split())
+    for key, answer in sorted(answers.items(), key=lambda item: len(item[0]), reverse=True):
+        if len(key) < 4:
+            continue
+        if key in normalized:
+            return answer
+        key_tokens = set(key.split())
+        if len(key_tokens) >= 2 and key_tokens.issubset(normalized_tokens):
+            return answer
+
+    return None
 
 
 def get_application_auto_answer_defaults() -> dict[str, str]:

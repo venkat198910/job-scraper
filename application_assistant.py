@@ -381,9 +381,11 @@ def queue_candidate(
     apply_url: str | None = None,
     portal: str | None = None,
     notes: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
 ) -> bool:
     effective_apply_url = apply_url or candidate.apply_url
     effective_portal = portal or detect_portal(effective_apply_url, candidate.provider)
+    result_notes = _queue_notes_from_result(result)
     payload = {
         "job_id": candidate.job_id,
         "customized_resume_id": candidate.customized_resume_id,
@@ -399,6 +401,7 @@ def queue_candidate(
             "company": candidate.company,
             "location": candidate.location,
             "submit_policy": "never_submit_without_manual_confirmation",
+            **result_notes,
             **(notes or {}),
         },
     }
@@ -430,6 +433,42 @@ def queue_candidate_to_storage(candidate: ApplicationCandidate, payload: dict[st
     except Exception as exc:
         logging.error("Could not queue application candidate %s: %s", candidate.job_id, exc)
         return False
+
+
+def _queue_notes_from_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not result:
+        return {}
+
+    notes: dict[str, Any] = {}
+    messages = result.get("messages")
+    if isinstance(messages, list):
+        notes["last_messages"] = [str(message) for message in messages[-12:]]
+
+    missing_questions = result.get("missing_questions")
+    if isinstance(missing_questions, list) and missing_questions:
+        notes["missing_questions"] = [
+            question
+            for question in (_missing_question_payload(str(item)) for item in missing_questions)
+            if question
+        ]
+
+    if result.get("resolved_apply_url"):
+        notes["resolved_apply_url"] = str(result["resolved_apply_url"])
+
+    return notes
+
+
+def _missing_question_payload(label: str) -> dict[str, Any] | None:
+    normalized = app_settings.normalize_question_key(label)
+    if not normalized:
+        return None
+    answer = app_settings.find_application_question_answer(label)
+    return {
+        "label": label,
+        "key": normalized,
+        "suggestedAnswer": answer or "",
+        "known": bool(answer),
+    }
 
 
 def download_resume(candidate: ApplicationCandidate) -> Path:
@@ -1202,6 +1241,9 @@ def _answer_for_required_label(label: str) -> str | None:
         return profile.get("devopsExperience", "") or profile.get("sreExperience", "") or "7"
     if "java" in normalized:
         return "0"
+    learned_answer = app_settings.find_application_question_answer(label)
+    if learned_answer:
+        return learned_answer
     if "total work experience" in normalized or "total years of experience" in normalized:
         return profile.get("totalExperience", "9.6")
     if "relevant work experience" in normalized or "years of work experience" in normalized or "years of experience" in normalized:
@@ -1229,7 +1271,8 @@ def _answer_for_required_label(label: str) -> str | None:
     if "relocat" in normalized:
         return answers.get("willingToRelocate", "")
     if "experience" in normalized:
-        return profile.get("totalExperience", "")
+        learned_answer = app_settings.find_application_question_answer(label)
+        return learned_answer or profile.get("totalExperience", "")
     if "cross cutting platform" in normalized or "served multiple products" in normalized or "multiple products or teams" in normalized:
         return (
             "I led reusable CI/CD and Kubernetes platform improvements used across multiple application teams, "
@@ -1369,6 +1412,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     required_unfilled = await _detect_required_unfilled(page, scope=root)
     if required_unfilled:
         result["status"] = "manual_review_required"
+        result["missing_questions"] = required_unfilled
         result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
         return
 
@@ -1378,6 +1422,8 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     if await submit.count() == 0:
         visible_buttons = await _visible_button_labels(root)
         result["status"] = "manual_review_required"
+        if not result.get("missing_questions"):
+            result["missing_questions"] = await _detect_required_unfilled(page, scope=root)
         result["messages"].append("No final submit/apply button detected.")
         if visible_buttons:
             result["messages"].append(f"Visible buttons at final check: {visible_buttons}")
@@ -1984,7 +2030,7 @@ async def main() -> None:
                 allow_login=effective_allow_login,
                 allow_register=effective_allow_register,
             )
-            queue_candidate(candidate, status=result["status"])
+            queue_candidate(candidate, status=result["status"], result=result)
             results.append(result)
             print(json.dumps(result, indent=2))
             if result.get("status") == "submitted":
@@ -2007,7 +2053,11 @@ async def main() -> None:
                     manual_login_wait=args.manual_login_wait,
                 )
                 if resolve_result.get("status") != "external_apply_resolved":
-                    queue_candidate(candidate, status=str(resolve_result.get("status") or "company_portal_review"))
+                    queue_candidate(
+                        candidate,
+                        status=str(resolve_result.get("status") or "company_portal_review"),
+                        result=resolve_result,
+                    )
                     results.append(resolve_result)
                     print(json.dumps(resolve_result, indent=2))
                     continue
@@ -2028,6 +2078,7 @@ async def main() -> None:
                 apply_url=apply_url,
                 portal=str(result.get("portal") or detect_portal(apply_url, candidate.provider)),
                 notes={"resolved_from": candidate.apply_url} if apply_url != candidate.apply_url else None,
+                result=result,
             )
             results.append(result)
             print(json.dumps(result, indent=2))
@@ -2058,7 +2109,7 @@ async def main() -> None:
                 allow_submit=submit_allowed,
                 manual_login_wait=args.manual_login_wait,
             )
-            queue_candidate(candidate, status=result["status"])
+            queue_candidate(candidate, status=result["status"], result=result)
             results.append(result)
             print(json.dumps(result, indent=2))
             if result.get("status") == "submitted":
@@ -2079,7 +2130,7 @@ async def main() -> None:
             allow_submit=effective_allow_submit,
             manual_login_wait=args.manual_login_wait,
         )
-        queue_candidate(candidate, status=result["status"])
+        queue_candidate(candidate, status=result["status"], result=result)
         results.append(result)
         print(json.dumps(result, indent=2))
 
