@@ -27,7 +27,7 @@ on:
       max_job_age_minutes:
         description: "Only process jobs posted/scraped within this many minutes. 0 disables freshness filter."
         required: true
-        default: "300"
+        default: "720"
       daily_submit_limit:
         description: "Maximum applications to submit per UTC day. 0 disables the cap."
         required: true
