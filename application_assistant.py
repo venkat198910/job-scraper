@@ -259,13 +259,17 @@ def fetch_candidates(
             continue
         candidates.append(candidate)
 
-    if not candidates and stale_candidates:
-        fallback_limit = stale_fallback_limit or limit
-        candidates = stale_candidates[:fallback_limit]
+    fallback_limit = stale_fallback_limit or limit
+    if stale_candidates and len(candidates) < fallback_limit:
+        remaining_slots = max(fallback_limit - len(candidates), 0)
+        fallback_candidates = stale_candidates[:remaining_slots]
+        candidates.extend(fallback_candidates)
         logging.warning(
-            "No candidates matched the freshness window; falling back to %s older scored custom-resume candidate(s).",
-            len(candidates),
+            "Fresh application candidates were below target; adding %s older scored custom-resume candidate(s) after fresh candidates.",
+            len(fallback_candidates),
         )
+    if fallback_limit > 0:
+        candidates = candidates[:fallback_limit]
 
     logging.info(
         "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s stale_fallback_available=%s max_age_minutes=%s",
