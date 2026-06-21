@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time 
 import random 
 import logging
@@ -211,10 +211,62 @@ def _get_careers_future_job_company_name(job_item: dict) -> str | None:
     return None
 
 # --- LinkedIn Scraping Logic ---
+def _parse_linkedin_relative_posted_at(text: str, now: datetime | None = None) -> str | None:
+    """Convert LinkedIn card text such as '4 hours ago' into a UTC timestamp."""
+    if not text:
+        return None
+
+    normalized = re.sub(r"\s+", " ", text.lower()).strip()
+    if "just now" in normalized:
+        return (now or datetime.now(timezone.utc)).isoformat()
+
+    match = re.search(
+        r"\b(\d+)\s+(minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks|month|months)\s+ago\b",
+        normalized,
+    )
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if unit in {"minute", "minutes", "min", "mins"}:
+        delta = timedelta(minutes=amount)
+    elif unit in {"hour", "hours", "hr", "hrs"}:
+        delta = timedelta(hours=amount)
+    elif unit in {"day", "days"}:
+        delta = timedelta(days=amount)
+    elif unit in {"week", "weeks"}:
+        delta = timedelta(weeks=amount)
+    else:
+        delta = timedelta(days=amount * 30)
+
+    return ((now or datetime.now(timezone.utc)) - delta).isoformat()
+
+
+def _extract_linkedin_card_posted_at(job_element) -> str | None:
+    for time_tag in job_element.find_all("time"):
+        text_posted_at = _parse_linkedin_relative_posted_at(time_tag.get_text(" ", strip=True))
+        if text_posted_at:
+            return text_posted_at
+
+        datetime_value = time_tag.get("datetime")
+        if datetime_value:
+            try:
+                parsed = datetime.fromisoformat(datetime_value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc).isoformat()
+            except ValueError:
+                pass
+
+    return _parse_linkedin_relative_posted_at(job_element.get_text(" ", strip=True))
+
+
 def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
     """Fetches job IDs from LinkedIn search results pages with delays, rotating user agents, and retries."""
 
     job_ids_list = []
+    job_metadata_by_id = {}
     start = 0
     max_start = app_settings.get_advanced_int("linkedinMaxStart")
 
@@ -319,6 +371,9 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
                     jobid = job_urn.split(":")[3]
                     if jobid not in job_ids_list:
                          job_ids_list.append(jobid)
+                         posted_at = _extract_linkedin_card_posted_at(job_element)
+                         if posted_at:
+                             job_metadata_by_id[jobid] = {"posted_at": posted_at}
                          jobs_found_this_iteration += 1
                 except IndexError:
                     
@@ -337,7 +392,7 @@ def _fetch_linkedin_job_ids(search_query: str, location: str) -> list:
 
 
     logging.info(f"--- Finished Phase 1: Found {len(job_ids_list)} unique job IDs during scraping ---")
-    return job_ids_list
+    return job_ids_list, job_metadata_by_id
 
 def _fetch_linkedin_job_details(job_id: str) -> dict | None:
     """Fetches detailed information for a single job ID with delays, rotating user agents, and retries."""
@@ -509,7 +564,12 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
     Returns a list of new job details found.
     """
 
-    scraped_job_ids = _fetch_linkedin_job_ids(search_query, location)
+    scraped_result = _fetch_linkedin_job_ids(search_query, location)
+    if isinstance(scraped_result, tuple):
+        scraped_job_ids, scraped_job_metadata = scraped_result
+    else:
+        scraped_job_ids = scraped_result
+        scraped_job_metadata = {}
     if not scraped_job_ids:
     
         logging.info("No job IDs found in Phase 1. Skipping detail fetching.")
@@ -553,6 +613,8 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
     for job_id in ids_to_fetch:
         details = _fetch_linkedin_job_details(job_id)
         if details:
+            if not details.get("posted_at"):
+                details["posted_at"] = (scraped_job_metadata.get(str(job_id)) or {}).get("posted_at")
             description = details.get('description')
             if description and description.strip(): 
                 if _job_matches_excluded_title_keywords(details):
