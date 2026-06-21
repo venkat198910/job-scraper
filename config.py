@@ -138,9 +138,9 @@ LINKEDIN_MIN_EXPERIENCE_YEARS = 6
 LINKEDIN_MAX_EXPERIENCE_YEARS = 12
 LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH = True
 
-# UAE jobs are useful only when the company can support an employment visa.
-# India jobs are not affected by this filter.
-LINKEDIN_UAE_REQUIRE_SPONSORSHIP = True
+# Do not drop UAE jobs just because the posting omits visa/sponsorship wording.
+# Sponsorship answers are handled later during application automation.
+LINKEDIN_UAE_REQUIRE_SPONSORSHIP = False
 LINKEDIN_UAE_SPONSORSHIP_KEYWORDS = [
     "visa sponsorship",
     "sponsorship provided",

@@ -578,12 +578,6 @@ def process_linkedin_query(search_query: str, location: str, limit: int = None) 
                         app_settings.get_experience_range()[1],
                     )
                     continue
-                if _is_uae_location(location, details.get("location")) and not _linkedin_uae_job_has_sponsorship(details):
-                    logging.info(
-                        "Skipping UAE job ID %s because the posting does not explicitly provide visa sponsorship.",
-                        job_id,
-                    )
-                    continue
                 if 'job_id' in details and details['job_id'] is not None:
                     details.pop("applicant_count", None)
                     detailed_new_jobs.append(details)
@@ -932,8 +926,6 @@ def _company_career_job_allowed(job_details: dict) -> bool:
     if not _job_matches_company_career_location(job_details):
         return False
     if not _linkedin_job_matches_experience_range(job_details):
-        return False
-    if _is_uae_location(job_details.get("location")) and not _linkedin_uae_job_has_sponsorship(job_details):
         return False
     return True
 
