@@ -95,7 +95,7 @@ def build_apply_url(job: dict[str, Any]) -> str:
     provider = (job.get("provider") or "").lower()
     if provider == "linkedin":
         return linkedin_job_url(str(job["job_id"]))
-    return str(job.get("apply_url") or job.get("url") or "")
+    return str(job.get("apply_url") or job.get("job_url") or job.get("url") or "")
 
 
 def _score(job: dict[str, Any]) -> int:
@@ -146,13 +146,30 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
     try:
         response = (
             supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
-            .select("job_id, posted_at, scraped_at")
+            .select("job_id, posted_at, scraped_at, apply_url, job_url")
             .in_("job_id", job_ids)
             .execute()
         )
     except Exception as exc:
-        logging.warning("Could not load posted_at/scraped_at for candidates: %s", exc)
-        return {}
+        missing_column = supabase_utils._missing_schema_column(exc)
+        if missing_column in {"apply_url", "job_url"}:
+            logging.warning(
+                "Supabase jobs table is missing %s. Loading candidate timestamps without portal URLs.",
+                missing_column,
+            )
+            try:
+                response = (
+                    supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+                    .select("job_id, posted_at, scraped_at")
+                    .in_("job_id", job_ids)
+                    .execute()
+                )
+            except Exception as retry_exc:
+                logging.warning("Could not load posted_at/scraped_at for candidates: %s", retry_exc)
+                return {}
+        else:
+            logging.warning("Could not load posted_at/scraped_at for candidates: %s", exc)
+            return {}
 
     job_times: dict[str, dict[str, str]] = {}
     for row in response.data or []:
@@ -162,6 +179,8 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
         job_times[job_id] = {
             "posted_at": str(row.get("posted_at") or ""),
             "scraped_at": str(row.get("scraped_at") or ""),
+            "apply_url": str(row.get("apply_url") or ""),
+            "job_url": str(row.get("job_url") or ""),
         }
     return job_times
 
@@ -206,6 +225,7 @@ def fetch_candidates(
 
         job_id = str(job["job_id"])
         timing = job_times.get(job_id, {})
+        job_with_timing = {**job, **timing}
         posted_at = str(job.get("posted_at") or timing.get("posted_at") or "")
         scraped_at = str(job.get("scraped_at") or timing.get("scraped_at") or "")
 
@@ -218,8 +238,8 @@ def fetch_candidates(
             resume_score=_score(job),
             customized_resume_id=str(job["customized_resume_id"]),
             resume_link=str(job["resume_link"]),
-            apply_url=build_apply_url(job),
-            application_type=detect_application_type(job),
+            apply_url=build_apply_url(job_with_timing),
+            application_type=detect_application_type(job_with_timing),
             scraped_at=scraped_at,
             posted_at=posted_at,
         )

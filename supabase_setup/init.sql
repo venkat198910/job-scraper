@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS "public"."jobs" (
     "is_interested" boolean,
     "customized_resume_id" "uuid",
     "provider" "text",
+    "job_url" "text",
+    "apply_url" "text",
     "posted_at" timestamp with time zone
 );
 
@@ -121,6 +123,10 @@ COMMENT ON COLUMN "public"."jobs"."is_active" IS 'Is the job posting considered 
 
 
 COMMENT ON COLUMN "public"."jobs"."application_date" IS 'Timestamp when an application was submitted/attempted';
+
+COMMENT ON COLUMN "public"."jobs"."job_url" IS 'Canonical job posting URL from the source provider';
+
+COMMENT ON COLUMN "public"."jobs"."apply_url" IS 'Direct application URL for company career portals when available';
 
 
 

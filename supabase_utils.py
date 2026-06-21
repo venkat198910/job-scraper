@@ -4,6 +4,7 @@ from typing import Optional, Any, Dict
 from models import Resume
 import datetime # Import datetime module
 import logging # Import logging
+import re
 
 # --- Initialize Supabase Client ---
 # Ensure URL and Key are provided
@@ -11,6 +12,11 @@ if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
     raise ValueError("Supabase URL and Key must be set in environment variables or config.")
 
 supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+
+
+def _missing_schema_column(error: Exception) -> str | None:
+    match = re.search(r"Could not find the '([^']+)' column", str(error))
+    return match.group(1) if match else None
 
 # --- Supabase Functions ---
 def get_existing_jobs_from_supabase(batch_size: int = 1000) -> tuple[set, set]:
@@ -114,6 +120,29 @@ def save_jobs_to_supabase(jobs_data: list):
              print(f"Attempted to upsert {len(processed_jobs_data)} jobs. Supabase response: {data}")
 
     except Exception as e:
+        missing_column = _missing_schema_column(e)
+        if missing_column:
+            retry_jobs_data = processed_jobs_data
+            removed_columns = []
+            retry_error: Exception | None = e
+            while missing_column and missing_column not in removed_columns:
+                removed_columns.append(missing_column)
+                retry_jobs_data = [
+                    {key: value for key, value in job.items() if key != missing_column}
+                    for job in retry_jobs_data
+                ]
+                print(
+                    f"Supabase schema is missing column '{missing_column}'. "
+                    f"Retrying upsert without missing column(s): {removed_columns}."
+                )
+                try:
+                    data, count = supabase.table(config.SUPABASE_TABLE_NAME).upsert(retry_jobs_data).execute()
+                    print(f"Successfully upserted/updated {len(retry_jobs_data)} jobs after removing {removed_columns}.")
+                    return
+                except Exception as next_error:
+                    retry_error = next_error
+                    missing_column = _missing_schema_column(next_error)
+            print(f"Retry after removing missing column(s) {removed_columns} also failed: {retry_error}")
         print(f"Error upserting data to Supabase: {e}")
         # Consider logging the data that failed to upsert for debugging
         # print(f"Failed data: {processed_jobs_data}")
