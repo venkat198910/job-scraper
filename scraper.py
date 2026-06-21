@@ -190,10 +190,12 @@ def _job_matches_excluded_title_keywords(job_details: dict) -> bool:
         return False
 
     title = (job_details.get("job_title") or "").lower()
-    if not title:
+    description = (job_details.get("description") or "").lower()
+    haystack = f"{title}\n{description[:2000]}"
+    if not haystack.strip():
         return False
 
-    return any(keyword.lower() in title for keyword in excluded_keywords)
+    return any(keyword.lower() in haystack for keyword in excluded_keywords)
 
 def _get_careers_future_job_company_name(job_item: dict) -> str | None:
     """Helper to extract company name, preferring hiringCompany."""
