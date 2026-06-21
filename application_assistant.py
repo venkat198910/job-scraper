@@ -33,9 +33,10 @@ PORTAL_PATTERNS = {
     "smartrecruiters": re.compile(r"(smartrecruiters\.com|jobs\.smartrecruiters\.com)", re.IGNORECASE),
 }
 NEXT_BUTTON_TEXT = re.compile(
-    r"^(next|continue|continue to next step|save and continue|review|review application|review your application)$",
+    r"^(next|continue|continue to next step|save and continue)$",
     re.IGNORECASE,
 )
+REVIEW_BUTTON_TEXT = re.compile(r"^(review|review application|review your application)$", re.IGNORECASE)
 FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply|send application)$", re.IGNORECASE)
 
 
@@ -465,11 +466,14 @@ async def _click_first_button(
             button = root.locator(
                 "button[aria-label*='Next'], "
                 "button[aria-label*='Continue'], "
-                "button[aria-label*='Review'], "
                 "button:has-text('Next'), "
                 "button:has-text('Continue'), "
-                "button:has-text('Review'), "
                 "button:has-text('Save and continue')"
+            )
+        elif pattern.pattern == REVIEW_BUTTON_TEXT.pattern:
+            button = root.locator(
+                "button[aria-label*='Review'], "
+                "button:has-text('Review')"
             )
         if await button.count() == 0:
             return False
@@ -507,6 +511,17 @@ async def _visible_button_labels(scope: Any, limit: int = 12) -> list[str]:
         except Exception:
             continue
     return labels
+
+
+async def _find_submit_button(root: Any) -> Any:
+    button = root.get_by_role("button", name=FINAL_SUBMIT_TEXT)
+    if await button.count() > 0:
+        return button
+    return root.locator(
+        "button[aria-label*='Submit application' i], "
+        "button:has-text('Submit application'), "
+        "button:has-text('Send application')"
+    )
 
 
 async def _save_application_debug_artifacts(page: Any, result: dict[str, Any], reason: str, scope: Any | None = None) -> None:
@@ -1294,10 +1309,15 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
         result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
         return
 
-    submit = root.get_by_role("button", name=FINAL_SUBMIT_TEXT)
+    submit = await _find_submit_button(root)
     if await submit.count() == 0:
+        submit = await _find_submit_button(page)
+    if await submit.count() == 0:
+        visible_buttons = await _visible_button_labels(root)
         result["status"] = "manual_review_required"
         result["messages"].append("No final submit/apply button detected.")
+        if visible_buttons:
+            result["messages"].append(f"Visible buttons at final check: {visible_buttons}")
         await _save_application_debug_artifacts(page, result, "no_final_submit", scope=root)
         return
 
@@ -1438,7 +1458,8 @@ async def prepare_linkedin_easy_apply(
 
         for _ in range(8):
             application_scope = await _application_scope(page)
-            if await application_scope.get_by_role("button", name=FINAL_SUBMIT_TEXT).count() > 0:
+            final_submit = await _find_submit_button(application_scope)
+            if await final_submit.count() > 0:
                 break
             clicked = await _click_first_button(
                 page,
@@ -1448,6 +1469,9 @@ async def prepare_linkedin_easy_apply(
                 scope=application_scope,
             )
             if not clicked:
+                review_button = application_scope.get_by_role("button", name=REVIEW_BUTTON_TEXT)
+                if await review_button.count() > 0:
+                    break
                 visible_buttons = await _visible_button_labels(application_scope)
                 if visible_buttons:
                     result["messages"].append(f"Could not advance Easy Apply step. Visible buttons: {visible_buttons}")
@@ -1465,6 +1489,19 @@ async def prepare_linkedin_easy_apply(
                 field = application_scope.get_by_label(re.compile(re.escape(label), re.IGNORECASE))
                 if await field.count() > 0:
                     await _fill_field_safely(field.first, str(value), label, result["messages"])
+
+        application_scope = await _application_scope(page)
+        final_submit = await _find_submit_button(application_scope)
+        if await final_submit.count() == 0:
+            reviewed = await _click_first_button(
+                page,
+                REVIEW_BUTTON_TEXT,
+                result["messages"],
+                timeout=5000,
+                scope=application_scope,
+            )
+            if reviewed:
+                await page.wait_for_timeout(2500)
 
         application_scope = await _application_scope(page)
         await _maybe_submit(page, allow_submit, result, scope=application_scope)
