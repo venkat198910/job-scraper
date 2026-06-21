@@ -167,6 +167,7 @@ def fetch_candidates(
     min_score: int,
     provider: str | None = "linkedin",
     max_age_minutes: int | None = None,
+    stale_fallback_limit: int | None = None,
 ) -> list[ApplicationCandidate]:
     response = supabase_utils.supabase.rpc(
         "get_top_scored_jobs_custom_sort",
@@ -187,6 +188,7 @@ def fetch_candidates(
     )
 
     candidates = []
+    stale_candidates = []
     skipped_missing_resume = 0
     skipped_score = 0
     skipped_freshness = 0
@@ -228,16 +230,26 @@ def fetch_candidates(
                 None if age_minutes is None else round(age_minutes, 1),
                 max_age_minutes,
             )
+            stale_candidates.append(candidate)
             continue
         candidates.append(candidate)
 
+    if not candidates and stale_candidates:
+        fallback_limit = stale_fallback_limit or limit
+        candidates = stale_candidates[:fallback_limit]
+        logging.warning(
+            "No candidates matched the freshness window; falling back to %s older scored custom-resume candidate(s).",
+            len(candidates),
+        )
+
     logging.info(
-        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s max_age_minutes=%s",
+        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s stale_fallback_available=%s max_age_minutes=%s",
         len(rows),
         len(candidates),
         skipped_missing_resume,
         skipped_score,
         skipped_freshness,
+        len(stale_candidates),
         max_age_minutes,
     )
 
@@ -1754,6 +1766,7 @@ async def main() -> None:
         min_score=args.min_score,
         provider=provider,
         max_age_minutes=max_job_age_minutes if args.mode in {"auto-apply", "prepare-company-portal"} else None,
+        stale_fallback_limit=args.limit if args.mode in {"auto-apply", "prepare-company-portal"} else None,
     )
     print_candidates(candidates)
 
