@@ -285,6 +285,41 @@ def fetch_candidates(
     return candidates
 
 
+def fetch_candidate_from_queue(job_id: str) -> ApplicationCandidate | None:
+    response = (
+        supabase_utils.supabase.table(APPLICATION_QUEUE_TABLE)
+        .select("*")
+        .eq("job_id", str(job_id))
+        .order("updated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    if not rows:
+        return None
+
+    row = rows[0]
+    notes = row.get("notes") if isinstance(row.get("notes"), dict) else {}
+    apply_url = str(row.get("apply_url") or "")
+    portal = str(row.get("portal") or "")
+    provider = "linkedin" if portal == "linkedin" or "linkedin.com" in apply_url else portal or "company_portal"
+
+    return ApplicationCandidate(
+        job_id=str(row.get("job_id") or job_id),
+        job_title=str(notes.get("job_title") or ""),
+        company=str(notes.get("company") or ""),
+        location=str(notes.get("location") or ""),
+        provider=provider,
+        resume_score=int(row.get("score") or 0),
+        customized_resume_id=str(row.get("customized_resume_id") or ""),
+        resume_link=str(row.get("resume_path") or ""),
+        apply_url=apply_url or linkedin_job_url(str(job_id)),
+        application_type=str(row.get("application_type") or detect_application_type({"provider": provider})),
+        scraped_at="",
+        posted_at="",
+    )
+
+
 def candidate_pool_limit(limit: int, mode: str) -> int:
     """Scan a wider pool because top jobs may not match the requested apply flow."""
     if mode not in {"auto-apply", "prepare-company-portal"}:
@@ -2022,6 +2057,7 @@ async def main() -> None:
         default="plan",
     )
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--job-id", help="Process one queued application by job ID.")
     parser.add_argument("--min-score", type=int, default=app_settings.get_min_score())
     parser.add_argument(
         "--max-job-age-minutes",
@@ -2104,13 +2140,20 @@ async def main() -> None:
         return
 
     provider = None if args.provider == "all" else args.provider
-    candidates = fetch_candidates(
-        limit=candidate_pool_limit(args.limit, args.mode),
-        min_score=args.min_score,
-        provider=provider,
-        max_age_minutes=max_job_age_minutes if args.mode in {"auto-apply", "prepare-company-portal"} else None,
-        stale_fallback_limit=args.limit if args.mode in {"auto-apply", "prepare-company-portal"} else None,
-    )
+    if args.job_id:
+        queued_candidate = fetch_candidate_from_queue(args.job_id)
+        if not queued_candidate:
+            print(f"No queued application found for job_id={args.job_id}.")
+            sys.exit(1)
+        candidates = [queued_candidate]
+    else:
+        candidates = fetch_candidates(
+            limit=candidate_pool_limit(args.limit, args.mode),
+            min_score=args.min_score,
+            provider=provider,
+            max_age_minutes=max_job_age_minutes if args.mode in {"auto-apply", "prepare-company-portal"} else None,
+            stale_fallback_limit=args.limit if args.mode in {"auto-apply", "prepare-company-portal"} else None,
+        )
     print_candidates(candidates)
 
     if args.mode == "plan":
