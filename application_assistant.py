@@ -23,6 +23,7 @@ APPLICATION_QUEUE_STORAGE_BUCKET = getattr(config, "SUPABASE_RESUME_STORAGE_BUCK
 APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
 APPLICATION_SESSION_STORAGE_PREFIX = "application_sessions"
 APPLICATION_DEBUG_DIR = Path(tempfile.gettempdir()) / "jobtrack_application_debug"
+LIVE_AGENT_DIR = Path(tempfile.gettempdir()) / "jobtrack_live_agent"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
 PORTAL_PATTERNS = {
@@ -531,6 +532,201 @@ def _compact_application_question_label(label: str) -> str:
             return text[index : index + 220].strip(" -:")
 
     return text[:220].strip()
+
+
+def _live_session_id() -> str:
+    return str(os.environ.get("JOBTRACK_LIVE_SESSION_ID") or "").strip()
+
+
+def _live_session_file(session_id: str) -> Path:
+    LIVE_AGENT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^a-zA-Z0-9_.-]+", "_", session_id)
+    return LIVE_AGENT_DIR / f"{safe_id}.json"
+
+
+def _live_answer_file(session_id: str) -> Path:
+    LIVE_AGENT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^a-zA-Z0-9_.-]+", "_", session_id)
+    return LIVE_AGENT_DIR / f"{safe_id}.answer.json"
+
+
+def _write_live_session(session_id: str, payload: dict[str, Any]) -> None:
+    payload = {
+        "session_id": session_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    _live_session_file(session_id).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _read_live_answers(session_id: str) -> dict[str, str]:
+    answer_path = _live_answer_file(session_id)
+    if not answer_path.exists():
+        return {}
+    try:
+        payload = json.loads(answer_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    raw_answers = payload.get("answers")
+    if not isinstance(raw_answers, list):
+        return {}
+
+    answers: dict[str, str] = {}
+    for item in raw_answers:
+        if not isinstance(item, dict):
+            continue
+        key = app_settings.normalize_question_key(item.get("key") or item.get("label") or "")
+        answer = str(item.get("answer") or "").strip()
+        if key and answer:
+            answers[key] = answer
+    return answers
+
+
+def _save_live_answers_to_settings(answers: dict[str, str]) -> None:
+    if not answers:
+        return
+    try:
+        settings = app_settings.get_app_settings(force_refresh=True)
+        existing = settings.get("applicationQuestionAnswers")
+        if not isinstance(existing, dict):
+            existing = {}
+        existing.update(answers)
+        settings["applicationQuestionAnswers"] = existing
+        supabase_utils.supabase.table(app_settings.SETTINGS_TABLE).upsert(
+            {
+                "id": app_settings.SETTINGS_ID,
+                "settings": app_settings.normalize_settings(settings),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            on_conflict="id",
+        ).execute()
+        app_settings.get_app_settings(force_refresh=True)
+    except Exception as exc:
+        logging.warning("Could not persist live answer memory: %s", exc)
+
+
+async def _fill_live_answers(
+    page: Any,
+    answers: dict[str, str],
+    messages: list[str],
+    scope: Any | None = None,
+) -> None:
+    if not answers:
+        return
+    root = scope or page
+    controls = root.locator(
+        "input:not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']), "
+        "textarea, select, [contenteditable='true']"
+    )
+    count = await controls.count()
+    for index in range(min(count, 80)):
+        control = controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+        except Exception:
+            continue
+        if await _control_has_value(control):
+            continue
+        label = await _field_label_text(control, index)
+        label_key = app_settings.normalize_question_key(label)
+        answer = None
+        for key, value in answers.items():
+            if key and (key in label_key or label_key in key):
+                answer = value
+                break
+        if answer:
+            await _fill_field_safely(control, answer, label, messages)
+            messages.append(f"Filled live answer for: {_compact_application_question_label(label)}")
+
+
+async def _request_live_answers(
+    page: Any,
+    labels: list[str],
+    result: dict[str, Any],
+    scope: Any | None = None,
+) -> bool:
+    session_id = _live_session_id()
+    if not session_id or not labels:
+        return False
+
+    questions = [
+        question
+        for question in (_missing_question_payload(label) for label in labels)
+        if question
+    ]
+    if not questions:
+        return False
+
+    answer_path = _live_answer_file(session_id)
+    if answer_path.exists():
+        try:
+            answer_path.unlink()
+        except Exception:
+            pass
+
+    _write_live_session(
+        session_id,
+        {
+            "status": "waiting_for_answers",
+            "job_id": result.get("job_id"),
+            "portal": result.get("portal"),
+            "questions": questions,
+            "messages": result.get("messages", [])[-8:],
+        },
+    )
+    result["messages"].append(f"Waiting for live UI answers in session {session_id}.")
+
+    timeout_seconds = int(os.environ.get("JOBTRACK_LIVE_ANSWER_TIMEOUT_SECONDS") or "900")
+    deadline = datetime.now(timezone.utc).timestamp() + timeout_seconds
+    while datetime.now(timezone.utc).timestamp() < deadline:
+        answers = _read_live_answers(session_id)
+        if answers:
+            _write_live_session(
+                session_id,
+                {
+                    "status": "answers_received",
+                    "job_id": result.get("job_id"),
+                    "portal": result.get("portal"),
+                    "questions": questions,
+                    "messages": result.get("messages", [])[-8:],
+                },
+            )
+            _save_live_answers_to_settings(answers)
+            await _fill_live_answers(page, answers, result["messages"], scope=scope)
+            return True
+        await page.wait_for_timeout(1000)
+
+    _write_live_session(
+        session_id,
+        {
+            "status": "timeout",
+            "job_id": result.get("job_id"),
+            "portal": result.get("portal"),
+            "questions": questions,
+            "messages": result.get("messages", [])[-8:],
+        },
+    )
+    return False
+
+
+def _finalize_live_session(result: dict[str, Any]) -> None:
+    session_id = _live_session_id()
+    if not session_id:
+        return
+    try:
+        _write_live_session(
+            session_id,
+            {
+                "status": str(result.get("status") or "finished"),
+                "job_id": result.get("job_id"),
+                "portal": result.get("portal"),
+                "messages": result.get("messages", [])[-12:],
+            },
+        )
+    except Exception as exc:
+        logging.warning("Could not finalize live session: %s", exc)
 
 
 def download_resume(candidate: ApplicationCandidate) -> Path:
@@ -1564,6 +1760,13 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     await _fill_known_visible_fields(page, result["messages"], scope=root)
     required_unfilled = await _detect_required_unfilled(page, scope=root)
     if required_unfilled:
+        if await _request_live_answers(page, required_unfilled, result, scope=root):
+            await _fill_known_required_fields(page, result["messages"], scope=root)
+            await _fill_known_visible_fields(page, result["messages"], scope=root)
+            required_unfilled = await _detect_required_unfilled(page, scope=root)
+            if not required_unfilled:
+                await _maybe_submit(page, allow_submit, result, scope=root)
+                return
         result["status"] = "manual_review_required"
         result["missing_questions"] = required_unfilled
         result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
@@ -1574,9 +1777,16 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
         submit = await _find_submit_button(page)
     if await submit.count() == 0:
         visible_buttons = await _visible_button_labels(root)
+        visible_questions = await _detect_visible_unanswered_questions(page, scope=root)
+        if visible_questions and await _request_live_answers(page, visible_questions, result, scope=root):
+            await _fill_known_required_fields(page, result["messages"], scope=root)
+            await _fill_known_visible_fields(page, result["messages"], scope=root)
+            await _maybe_submit(page, allow_submit, result, scope=root)
+            return
+
         result["status"] = "manual_review_required"
         if not result.get("missing_questions"):
-            result["missing_questions"] = await _detect_visible_unanswered_questions(page, scope=root)
+            result["missing_questions"] = visible_questions
         result["messages"].append("No final submit/apply button detected.")
         if visible_buttons:
             result["messages"].append(f"Visible buttons at final check: {visible_buttons}")
@@ -2137,6 +2347,7 @@ async def main() -> None:
             print("\nSubmitted because --allow-submit was explicitly provided and no unknown required fields were detected.")
         else:
             print("\nStopped before final submit.")
+        _finalize_live_session(result)
         return
 
     provider = None if args.provider == "all" else args.provider
@@ -2194,6 +2405,7 @@ async def main() -> None:
             queue_candidate(candidate, status=result["status"], result=result)
             results.append(result)
             print(json.dumps(result, indent=2))
+            _finalize_live_session(result)
             if result.get("status") == "submitted":
                 submitted_today += 1
             continue
@@ -2221,6 +2433,7 @@ async def main() -> None:
                     )
                     results.append(resolve_result)
                     print(json.dumps(resolve_result, indent=2))
+                    _finalize_live_session(resolve_result)
                     continue
                 apply_url = str(resolve_result["resolved_apply_url"])
 
@@ -2243,6 +2456,7 @@ async def main() -> None:
             )
             results.append(result)
             print(json.dumps(result, indent=2))
+            _finalize_live_session(result)
             if result.get("status") == "submitted":
                 submitted_today += 1
             if result.get("status") in progress_statuses:
@@ -2273,6 +2487,7 @@ async def main() -> None:
             queue_candidate(candidate, status=result["status"], result=result)
             results.append(result)
             print(json.dumps(result, indent=2))
+            _finalize_live_session(result)
             if result.get("status") == "submitted":
                 submitted_today += 1
             if result.get("status") in progress_statuses:
@@ -2294,6 +2509,7 @@ async def main() -> None:
         queue_candidate(candidate, status=result["status"], result=result)
         results.append(result)
         print(json.dumps(result, indent=2))
+        _finalize_live_session(result)
 
     if effective_allow_submit:
         print("\nSubmit was allowed only where no unknown required fields were detected.")
