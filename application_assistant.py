@@ -459,6 +459,7 @@ def _queue_notes_from_result(result: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _missing_question_payload(label: str) -> dict[str, Any] | None:
+    label = _compact_application_question_label(label)
     normalized = app_settings.normalize_question_key(label)
     if not normalized:
         return None
@@ -469,6 +470,32 @@ def _missing_question_payload(label: str) -> dict[str, Any] | None:
         "suggestedAnswer": answer or "",
         "known": bool(answer),
     }
+
+
+def _compact_application_question_label(label: str) -> str:
+    text = re.sub(r"\s+", " ", str(label or "")).strip()
+    if not text:
+        return ""
+
+    question_match = re.search(r"[^?.!]{8,220}\?", text)
+    if question_match:
+        return question_match.group(0).strip()
+
+    for marker in [
+        "how many years",
+        "how much experience",
+        "do you have",
+        "are you",
+        "can you",
+        "will you",
+        "what is",
+        "where are",
+    ]:
+        index = text.lower().find(marker)
+        if index >= 0:
+            return text[index : index + 220].strip(" -:")
+
+    return text[:220].strip()
 
 
 def download_resume(candidate: ApplicationCandidate) -> Path:
@@ -1144,6 +1171,96 @@ async def _detect_required_unfilled(page: Any, scope: Any | None = None) -> list
     return labels
 
 
+async def _control_has_value(control: Any) -> bool:
+    try:
+        control_type = ((await control.get_attribute("type")) or "").lower()
+        if control_type in {"file", "hidden", "submit", "button", "checkbox", "radio"}:
+            return True
+    except Exception:
+        pass
+
+    try:
+        value = await control.input_value(timeout=800)
+        return bool(str(value or "").strip())
+    except Exception:
+        pass
+
+    try:
+        value = await control.text_content(timeout=800)
+        return bool(str(value or "").strip())
+    except Exception:
+        return False
+
+
+def _is_noise_application_label(label: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
+    if not normalized:
+        return True
+    if normalized in {"select", "choose", "search", "filter", "type message here", "enter manually"}:
+        return True
+    if "resume/cv" in normalized or "resume cv" in normalized:
+        return True
+    return False
+
+
+async def _fill_known_visible_fields(page: Any, messages: list[str], scope: Any | None = None) -> None:
+    root = scope or page
+    controls = root.locator(
+        "input:not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']), "
+        "textarea, select, [contenteditable='true']"
+    )
+    count = await controls.count()
+    for index in range(min(count, 60)):
+        control = controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+        except Exception:
+            continue
+        if await _control_has_value(control):
+            continue
+
+        label = await _field_label_text(control, index)
+        if _is_noise_application_label(label):
+            continue
+        answer = _answer_for_required_label(label)
+        if not answer:
+            continue
+        await _fill_field_safely(control, str(answer), label, messages)
+
+
+async def _detect_visible_unanswered_questions(page: Any, scope: Any | None = None) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    root = scope or page
+    controls = root.locator(
+        "input:not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']), "
+        "textarea, select, [contenteditable='true']"
+    )
+    count = await controls.count()
+    for index in range(min(count, 60)):
+        control = controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+        except Exception:
+            continue
+        if await _control_has_value(control):
+            continue
+
+        label = await _field_label_text(control, index)
+        if _is_noise_application_label(label):
+            continue
+        if _answer_for_required_label(label):
+            continue
+        key = app_settings.normalize_question_key(label)
+        if key and key not in seen:
+            labels.append(label)
+            seen.add(key)
+
+    return labels
+
+
 def _digits_for_lpa(value: str) -> str:
     match = re.search(r"(\d+(?:\.\d+)?)", value or "")
     if not match:
@@ -1409,6 +1526,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     root = scope or page
     await _fill_common_portal_widgets(page, str(result.get("portal") or ""), result["messages"])
     await _fill_known_required_fields(page, result["messages"], scope=root)
+    await _fill_known_visible_fields(page, result["messages"], scope=root)
     required_unfilled = await _detect_required_unfilled(page, scope=root)
     if required_unfilled:
         result["status"] = "manual_review_required"
@@ -1423,7 +1541,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
         visible_buttons = await _visible_button_labels(root)
         result["status"] = "manual_review_required"
         if not result.get("missing_questions"):
-            result["missing_questions"] = await _detect_required_unfilled(page, scope=root)
+            result["missing_questions"] = await _detect_visible_unanswered_questions(page, scope=root)
         result["messages"].append("No final submit/apply button detected.")
         if visible_buttons:
             result["messages"].append(f"Visible buttons at final check: {visible_buttons}")
