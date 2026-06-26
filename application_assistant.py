@@ -39,6 +39,14 @@ NEXT_BUTTON_TEXT = re.compile(
 )
 REVIEW_BUTTON_TEXT = re.compile(r"^(review|review application|review your application)$", re.IGNORECASE)
 FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply|send application)$", re.IGNORECASE)
+PORTAL_ADVANCE_TEXT = re.compile(
+    r"^(apply now|apply|start application|next|continue|continue to next step|save and continue|review|review application)$",
+    re.IGNORECASE,
+)
+CHAT_INPUT_PATTERN = re.compile(
+    r"(type message|type your answer|enter answer|your answer|reply)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -641,6 +649,104 @@ async def _fill_live_answers(
             messages.append(f"Filled live answer for: {_compact_application_question_label(label)}")
 
 
+def _question_like_lines(text: str) -> list[str]:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    ignored = re.compile(
+        r"^(skip|submit|continue|next|back|restart|open|save|apply|mark|delete|start|live status|automation notes)$",
+        re.IGNORECASE,
+    )
+    questions: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if len(line) < 8 or ignored.match(line):
+            continue
+        if "?" in line or re.search(r"\b(how many|what is|are you|do you|can you|will you|have you|please|enter|provide)\b", line, re.IGNORECASE):
+            key = app_settings.normalize_question_key(line)
+            if key and key not in seen:
+                questions.append(line[:260])
+                seen.add(key)
+    return questions
+
+
+async def _detect_chatbot_questions(page: Any, scope: Any | None = None) -> list[str]:
+    root = scope or page
+    chat_inputs = root.locator(
+        "textarea[placeholder*='message' i], input[placeholder*='message' i], "
+        "textarea[placeholder*='answer' i], input[placeholder*='answer' i], "
+        "textarea[aria-label*='message' i], input[aria-label*='message' i]"
+    )
+    visible_chat_input = None
+    for index in range(min(await chat_inputs.count(), 8)):
+        candidate = chat_inputs.nth(index)
+        try:
+            if await candidate.is_visible(timeout=500):
+                placeholder = (
+                    (await candidate.get_attribute("placeholder")) or ""
+                    or (await candidate.get_attribute("aria-label")) or ""
+                )
+                if CHAT_INPUT_PATTERN.search(placeholder):
+                    visible_chat_input = candidate
+                    break
+        except Exception:
+            continue
+    if not visible_chat_input:
+        return []
+
+    try:
+        container_text = await visible_chat_input.evaluate(
+            """(el) => {
+                const container = el.closest('[role="dialog"], section, main, form, div');
+                return (container && (container.innerText || container.textContent)) || document.body.innerText || '';
+            }"""
+        )
+    except Exception:
+        try:
+            container_text = await root.locator("body").inner_text(timeout=2000)
+        except Exception:
+            container_text = ""
+
+    questions = _question_like_lines(container_text)
+    return questions[-3:]
+
+
+async def _fill_chatbot_answer(page: Any, answers: dict[str, str], messages: list[str], scope: Any | None = None) -> bool:
+    if not answers:
+        return False
+    root = scope or page
+    chat_inputs = root.locator(
+        "textarea[placeholder*='message' i], input[placeholder*='message' i], "
+        "textarea[placeholder*='answer' i], input[placeholder*='answer' i], "
+        "textarea[aria-label*='message' i], input[aria-label*='message' i]"
+    )
+    answer = next((value for value in answers.values() if str(value).strip()), "")
+    if not answer:
+        return False
+    for index in range(min(await chat_inputs.count(), 8)):
+        field = chat_inputs.nth(index)
+        try:
+            if not await field.is_visible(timeout=500):
+                continue
+            placeholder = (
+                (await field.get_attribute("placeholder")) or ""
+                or (await field.get_attribute("aria-label")) or ""
+            )
+            if not CHAT_INPUT_PATTERN.search(placeholder):
+                continue
+            await field.fill(str(answer), timeout=3000)
+            try:
+                await field.press("Enter", timeout=1000)
+            except Exception:
+                send_button = root.get_by_role("button", name=re.compile(r"^(send|submit|continue|next)$", re.IGNORECASE))
+                if await send_button.count() > 0:
+                    await send_button.first.click(timeout=3000)
+            messages.append("Answered live chatbot prompt.")
+            return True
+        except Exception as exc:
+            messages.append(f"Chatbot answer field was detected but could not be filled safely: {exc}")
+            return False
+    return False
+
+
 async def _request_live_answers(
     page: Any,
     labels: list[str],
@@ -695,6 +801,7 @@ async def _request_live_answers(
             )
             _save_live_answers_to_settings(answers)
             await _fill_live_answers(page, answers, result["messages"], scope=scope)
+            await _fill_chatbot_answer(page, answers, result["messages"], scope=scope)
             return True
         await page.wait_for_timeout(1000)
 
@@ -763,6 +870,8 @@ async def _click_first_button(
     root = scope or page
     button = root.get_by_role("button", name=pattern)
     if await button.count() == 0:
+        button = root.get_by_role("link", name=pattern)
+    if await button.count() == 0:
         if pattern.pattern == NEXT_BUTTON_TEXT.pattern:
             button = root.locator(
                 "button[aria-label*='Next'], "
@@ -775,6 +884,15 @@ async def _click_first_button(
             button = root.locator(
                 "button[aria-label*='Review'], "
                 "button:has-text('Review')"
+            )
+        elif pattern.pattern == PORTAL_ADVANCE_TEXT.pattern:
+            button = root.locator(
+                "button:has-text('Apply Now'), a:has-text('Apply Now'), "
+                "button:has-text('APPLY NOW'), a:has-text('APPLY NOW'), "
+                "button:has-text('Start Application'), a:has-text('Start Application'), "
+                "button:has-text('Continue'), a:has-text('Continue'), "
+                "button:has-text('Next'), a:has-text('Next'), "
+                "button:has-text('Review'), a:has-text('Review')"
             )
         if await button.count() == 0:
             return False
@@ -1768,6 +1886,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
                 await _maybe_submit(page, allow_submit, result, scope=root)
                 return
         result["status"] = "manual_review_required"
+        result.pop("_advance_attempts", None)
         result["missing_questions"] = required_unfilled
         result["messages"].append(f"Required fields/questions need review: {required_unfilled}")
         return
@@ -1777,6 +1896,12 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
         submit = await _find_submit_button(page)
     if await submit.count() == 0:
         visible_buttons = await _visible_button_labels(root)
+        chatbot_questions = await _detect_chatbot_questions(page, scope=root)
+        if chatbot_questions and await _request_live_answers(page, chatbot_questions, result, scope=root):
+            await page.wait_for_timeout(1200)
+            await _maybe_submit(page, allow_submit, result, scope=root)
+            return
+
         visible_questions = await _detect_visible_unanswered_questions(page, scope=root)
         if visible_questions and await _request_live_answers(page, visible_questions, result, scope=root):
             await _fill_known_required_fields(page, result["messages"], scope=root)
@@ -1784,7 +1909,20 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
             await _maybe_submit(page, allow_submit, result, scope=root)
             return
 
+        advance_attempts = int(result.get("_advance_attempts") or 0)
+        if advance_attempts < 8:
+            result["_advance_attempts"] = advance_attempts + 1
+            advanced = await _click_first_button(page, PORTAL_ADVANCE_TEXT, result["messages"], timeout=5000, scope=root)
+            if not advanced and root is not page:
+                advanced = await _click_first_button(page, PORTAL_ADVANCE_TEXT, result["messages"], timeout=5000)
+            if advanced:
+                await page.wait_for_timeout(1500)
+                next_scope = await _application_scope(page)
+                await _maybe_submit(page, allow_submit, result, scope=next_scope)
+                return
+
         result["status"] = "manual_review_required"
+        result.pop("_advance_attempts", None)
         if not result.get("missing_questions"):
             result["missing_questions"] = visible_questions
         result["messages"].append("No final submit/apply button detected.")
@@ -1795,6 +1933,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
 
     if not allow_submit:
         result["status"] = "manual_review_required"
+        result.pop("_advance_attempts", None)
         result["messages"].append("Final submit/apply button detected. Submit blocked because --allow-submit was not provided.")
         return
 
@@ -1803,6 +1942,7 @@ async def _maybe_submit(page: Any, allow_submit: bool, result: dict[str, Any], s
     except Exception:
         await submit.first.evaluate("(element) => element.click()", timeout=2000)
     result["status"] = "submitted"
+    result.pop("_advance_attempts", None)
     result["messages"].append("Application submitted because --allow-submit was explicitly provided.")
 
 
