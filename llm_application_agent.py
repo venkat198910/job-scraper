@@ -382,6 +382,57 @@ async def _fallback_fill_field(page: Any, target_id: str, value: str) -> bool:
     return False
 
 
+async def _upload_resume_fallback(page: Any, resume_path: Path) -> bool:
+    inputs = page.locator("input[type='file']")
+    for index in range(min(await inputs.count(), 12)):
+        field = inputs.nth(index)
+        try:
+            await field.set_input_files(str(resume_path), timeout=8000)
+            return True
+        except Exception:
+            continue
+    upload_buttons = page.get_by_role(
+        "button",
+        name=re.compile(r"(upload|resume|cv|attach|import)", re.IGNORECASE),
+    )
+    if await upload_buttons.count() > 0:
+        try:
+            await upload_buttons.first.click(timeout=5000)
+            await page.wait_for_timeout(1500)
+        except Exception:
+            pass
+        inputs = page.locator("input[type='file']")
+        for index in range(min(await inputs.count(), 12)):
+            field = inputs.nth(index)
+            try:
+                await field.set_input_files(str(resume_path), timeout=8000)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+async def _click_fallback(page: Any, preferred: str = "") -> bool:
+    patterns = []
+    if preferred:
+        patterns.append(re.escape(preferred))
+    patterns.extend([
+        r"^(next|continue|save and continue|review|apply now|apply|submit|send application)$",
+        r"(next|continue|review|apply|submit|send)",
+    ])
+    for pattern in patterns:
+        button = page.get_by_role("button", name=re.compile(pattern, re.IGNORECASE))
+        if await button.count() == 0:
+            button = page.get_by_role("link", name=re.compile(pattern, re.IGNORECASE))
+        if await button.count() > 0:
+            try:
+                await button.first.click(timeout=8000)
+            except Exception:
+                await button.first.evaluate("(el) => el.click()", timeout=3000)
+            return True
+    return False
+
+
 async def _execute_action(page: Any, action: dict[str, Any], resume_path: Path, allow_submit: bool, session_id: str, messages: list[str]) -> str:
     action_type = str(action.get("type") or "").strip().lower()
     target_id = str(action.get("target_id") or "").strip()
@@ -448,14 +499,30 @@ async def _execute_action(page: Any, action: dict[str, Any], resume_path: Path, 
         return f"checked {target_id}"
 
     if action_type == "upload_resume":
-        await element.set_input_files(str(resume_path), timeout=8000)
+        try:
+            await element.set_input_files(str(resume_path), timeout=8000)
+        except Exception:
+            if not await _upload_resume_fallback(page, resume_path):
+                raise
         return f"uploaded resume {target_id}"
 
     if action_type == "click":
         try:
+            href = await element.get_attribute("href")
+        except Exception:
+            href = None
+        if href and re.match(r"^https?://", href):
+            await page.goto(href, wait_until="domcontentloaded", timeout=90000)
+            await page.wait_for_timeout(6000)
+            return f"navigated {target_id}"
+        try:
             await element.click(timeout=8000)
         except Exception:
-            await element.evaluate("(el) => el.click()", timeout=3000)
+            try:
+                await element.evaluate("(el) => el.click()", timeout=3000)
+            except Exception:
+                if not await _click_fallback(page):
+                    raise
         return f"clicked {target_id}"
 
     if action_type == "submit":
@@ -473,14 +540,22 @@ async def _execute_action(page: Any, action: dict[str, Any], resume_path: Path, 
             try:
                 await element.click(timeout=8000)
             except Exception:
-                await element.evaluate("(el) => el.click()", timeout=3000)
+                try:
+                    await element.evaluate("(el) => el.click()", timeout=3000)
+                except Exception:
+                    if not await _click_fallback(page, label):
+                        raise
             return f"clicked non-final submit candidate {target_id}"
         if not allow_submit:
             return "final_submit_blocked_by_flag"
         try:
             await element.click(timeout=10000)
         except Exception:
-            await element.evaluate("(el) => el.click()", timeout=3000)
+            try:
+                await element.evaluate("(el) => el.click()", timeout=3000)
+            except Exception:
+                if not await _click_fallback(page, label):
+                    raise
         return f"submitted {target_id}"
 
     return f"unknown_action {action_type}"
@@ -717,6 +792,7 @@ async def run_agent(job_id: str, headless: bool, allow_submit: bool, max_steps: 
             submitted = False
             for action in actions[:4]:
                 try:
+                    before_url = page.url
                     outcome = await _execute_action(page, action, resume_path, allow_submit, session_id, messages)
                     messages.append(outcome)
                     if str(action.get("type")).lower() == "submit" and allow_submit:
@@ -727,6 +803,10 @@ async def run_agent(job_id: str, headless: bool, allow_submit: bool, max_steps: 
                         result["status"] = "manual_review_required"
                         break
                 await page.wait_for_timeout(1000)
+                action_type = str(action.get("type") or "").lower()
+                if action_type in {"click", "submit"} or page.url != before_url:
+                    await page.wait_for_timeout(4000)
+                    break
 
             if submitted:
                 result["status"] = "submitted"
