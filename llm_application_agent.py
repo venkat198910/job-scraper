@@ -626,6 +626,29 @@ async def _handle_otp_or_mfa_gate(page: Any, session_id: str, messages: list[str
         return filled
 
 
+async def _handle_captcha_gate(page: Any, session_id: str, messages: list[str]) -> bool:
+    if not session_id:
+        return False
+    answers = await _wait_for_user_answer(
+        session_id,
+        "Human verification / captcha is shown in the opened browser. Solve it there, then type done here and click Send Answer & Continue.",
+        None,
+        messages,
+        remember=False,
+    )
+    confirmed = any(str(value).strip() for value in answers.values())
+    if not confirmed:
+        return False
+
+    await page.wait_for_timeout(3000)
+    snapshot = await _snapshot(page)
+    if _is_human_gate(snapshot.get("body_text", "")) == "captcha_required":
+        messages.append("Captcha still appears after your confirmation.")
+        return False
+    messages.append("Human verification completed; continuing application.")
+    return True
+
+
 async def _handle_known_oracle_steps(page: Any, messages: list[str]) -> bool:
     url = page.url.lower()
     if "oraclecloud.com" not in url:
@@ -739,6 +762,9 @@ async def run_agent(job_id: str, headless: bool, allow_submit: bool, max_steps: 
             gate = _is_human_gate(snapshot.get("body_text", ""))
             if gate:
                 if gate == "otp_or_mfa_required" and await _handle_otp_or_mfa_gate(page, session_id, messages):
+                    await page.wait_for_timeout(1500)
+                    continue
+                if gate == "captcha_required" and await _handle_captcha_gate(page, session_id, messages):
                     await page.wait_for_timeout(1500)
                     continue
                 result["status"] = gate
