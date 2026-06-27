@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import tempfile
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,12 +45,20 @@ def _answer_file(session_id: str) -> Path:
 def _write_session(session_id: str, payload: dict[str, Any]) -> None:
     if not session_id:
         return
+    existing: dict[str, Any] = {}
+    path = _session_file(session_id)
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
     payload = {
+        **existing,
         "session_id": session_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         **payload,
     }
-    _session_file(session_id).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _read_live_answer(session_id: str) -> dict[str, str]:
@@ -649,6 +658,46 @@ async def _handle_captcha_gate(page: Any, session_id: str, messages: list[str]) 
     return True
 
 
+async def _linkedin_auth_required(page: Any) -> bool:
+    if "linkedin.com" not in page.url.lower():
+        return False
+    try:
+        text = await page.locator("body").inner_text(timeout=3000)
+    except Exception:
+        text = ""
+    if await assistant._linkedin_login_visible(page):
+        return True
+    return bool(
+        re.search(
+            r"\b(sign in|join now|email or phone|password|agree\s*&\s*join|create account)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+async def _handle_linkedin_auth_gate(page: Any, context: Any, session_id: str, messages: list[str]) -> bool:
+    if not session_id:
+        return False
+    answers = await _wait_for_user_answer(
+        session_id,
+        "LinkedIn login is required in the opened browser. Log in there, then type done here and click Send Answer & Continue.",
+        None,
+        messages,
+        remember=False,
+    )
+    if not any(str(value).strip() for value in answers.values()):
+        return False
+
+    await page.wait_for_timeout(3000)
+    if await _linkedin_auth_required(page):
+        messages.append("LinkedIn still appears logged out after your confirmation.")
+        return False
+    state_path = await assistant._save_context_state(context, "LINKEDIN_STORAGE_STATE_OUT", "linkedin_storage_state.json")
+    messages.append(f"LinkedIn login completed and session saved to {state_path}.")
+    return True
+
+
 async def _handle_known_oracle_steps(page: Any, messages: list[str]) -> bool:
     url = page.url.lower()
     if "oraclecloud.com" not in url:
@@ -756,6 +805,14 @@ async def run_agent(job_id: str, headless: bool, allow_submit: bool, max_steps: 
         await page.wait_for_timeout(8000)
 
         for step in range(1, max_steps + 1):
+            if assistant._is_linkedin_url(page.url) and await _linkedin_auth_required(page):
+                if await _handle_linkedin_auth_gate(page, context, session_id, messages):
+                    await page.goto(candidate.apply_url, wait_until="domcontentloaded", timeout=90000)
+                    await page.wait_for_timeout(5000)
+                    continue
+                result["status"] = "portal_auth_required"
+                messages.append("LinkedIn login is required before this application can continue.")
+                break
             if await _handle_known_oracle_steps(page, messages):
                 await page.wait_for_timeout(1500)
             snapshot = await _snapshot(page)
@@ -875,7 +932,18 @@ async def main() -> None:
     parser.add_argument("--allow-submit", action="store_true")
     parser.add_argument("--max-steps", type=int, default=25)
     args = parser.parse_args()
-    result = await run_agent(args.job_id, headless=args.headless, allow_submit=args.allow_submit, max_steps=args.max_steps)
+    try:
+        result = await run_agent(args.job_id, headless=args.headless, allow_submit=args.allow_submit, max_steps=args.max_steps)
+    except Exception as exc:
+        result = {
+            "job_id": args.job_id,
+            "status": "agent_error",
+            "messages": [
+                f"LLM Apply Agent crashed before completing: {exc}",
+                traceback.format_exc(limit=8),
+            ],
+        }
+        _write_session(_live_session_id(), result)
     print(json.dumps(result, indent=2))
 
 
