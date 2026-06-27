@@ -193,12 +193,25 @@ async def _snapshot(page: Any) -> dict[str, Any]:
                 const bits = [];
                 const add = (v) => { if (v && String(v).trim()) bits.push(String(v).trim()); };
                 if (el.labels) Array.from(el.labels).forEach((label) => add(label.innerText || label.textContent));
+                const labelledBy = el.getAttribute('aria-labelledby');
+                if (labelledBy) {
+                    labelledBy.split(/\\s+/).forEach((id) => {
+                        const label = document.getElementById(id);
+                        if (label) add(label.innerText || label.textContent);
+                    });
+                }
                 add(el.getAttribute('aria-label'));
                 add(el.getAttribute('placeholder'));
                 add(el.getAttribute('name'));
                 add(el.getAttribute('id'));
-                const container = el.closest('label, [role="group"], .field, .form-group, .application-question, div');
+                const container = el.closest('label, fieldset, [role="group"], [data-automation-id*="formField"], .field, .form-group, .application-question, div');
                 if (container) add((container.innerText || container.textContent || '').slice(0, 300));
+                let parent = el.parentElement;
+                for (let i = 0; parent && i < 4; i += 1) {
+                    const text = (parent.innerText || parent.textContent || '').trim();
+                    if (text && text.length > 5 && text.length < 500) add(text);
+                    parent = parent.parentElement;
+                }
                 return bits.find(Boolean) || '';
             };
             const elements = [];
@@ -232,12 +245,14 @@ async def _snapshot(page: Any) -> dict[str, Any]:
                     value: (el.value || '').slice(0, 120),
                     checked: Boolean(el.checked),
                     disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+                    aria_haspopup: (el.getAttribute('aria-haspopup') || '').slice(0, 80),
                     href: (el.getAttribute('href') || '').slice(0, 220)
                 };
                 elements.push(item);
                 const labelText = `${item.label} ${item.text} ${item.id}`.toLowerCase();
                 if (labelText.includes('honeypot')) return;
-                const isField = ['input', 'textarea', 'select'].includes(tag) || el.getAttribute('contenteditable') === 'true';
+                const isListboxButton = tag === 'button' && (el.getAttribute('aria-haspopup') || '').toLowerCase().includes('listbox');
+                const isField = ['input', 'textarea', 'select'].includes(tag) || el.getAttribute('contenteditable') === 'true' || isListboxButton;
                 if (isField) form_fields.push(item);
                 if (!isField) buttons_links.push(item);
             });
@@ -478,6 +493,90 @@ def _looks_like_placeholder(value: str) -> bool:
 def _looks_like_opaque_value(value: str) -> bool:
     value = str(value or "").strip()
     return bool(re.fullmatch(r"[a-f0-9]{16,}", value, re.IGNORECASE) or re.fullmatch(r"[A-Za-z0-9_-]{24,}", value))
+
+
+def _find_answer_in_map(label: str, answers: dict[str, str]) -> str | None:
+    normalized = app_settings.normalize_question_key(label)
+    if not normalized:
+        return None
+    exact = answers.get(normalized)
+    if exact:
+        return exact
+    normalized_tokens = set(normalized.split())
+    for raw_key, answer in sorted(answers.items(), key=lambda item: len(str(item[0])), reverse=True):
+        key = app_settings.normalize_question_key(raw_key)
+        if not key or not answer:
+            continue
+        if key in normalized:
+            return str(answer)
+        key_tokens = set(key.split())
+        if len(key_tokens) >= 2 and key_tokens.issubset(normalized_tokens):
+            return str(answer)
+    return None
+
+
+def _settings_answer_for_label(label: str) -> str | None:
+    direct = app_settings.find_application_question_answer(label)
+    if direct:
+        return direct
+
+    defaults: dict[str, str] = {}
+    defaults.update(app_settings.get_application_profile_defaults())
+    defaults.update(app_settings.get_application_auto_answer_defaults())
+    normalized_defaults = {
+        app_settings.normalize_question_key(key): value
+        for key, value in defaults.items()
+        if app_settings.normalize_question_key(key) and str(value or "").strip()
+    }
+    return _find_answer_in_map(label, normalized_defaults)
+
+
+def _field_has_value(item: dict[str, Any]) -> bool:
+    value = str(item.get("value") or item.get("text") or "").strip()
+    if item.get("tag") == "button" and str(item.get("aria_haspopup") or "").lower().find("listbox") >= 0:
+        return bool(value and not _looks_like_placeholder(value))
+    return bool(value and not _looks_like_placeholder(value))
+
+
+async def _apply_known_settings_answers(page: Any, snapshot: dict[str, Any], resume_path: Path, allow_submit: bool, session_id: str, messages: list[str]) -> int:
+    applied = 0
+    for item in snapshot.get("form_fields", []):
+        if applied >= 8:
+            break
+        if item.get("disabled"):
+            continue
+        tag = str(item.get("tag") or "").lower()
+        input_type = str(item.get("type") or "").lower()
+        if input_type in {"password", "file", "hidden", "submit", "button", "checkbox", "radio"}:
+            continue
+        if _field_has_value(item):
+            continue
+
+        label = " ".join(
+            str(item.get(key) or "")
+            for key in ["label", "text", "id"]
+            if str(item.get(key) or "").strip()
+        )
+        answer = _settings_answer_for_label(label)
+        if not answer:
+            continue
+
+        action_type = "select" if tag == "select" or str(item.get("aria_haspopup") or "").lower().find("listbox") >= 0 else "fill"
+        try:
+            outcome = await _execute_action(
+                page,
+                {"type": action_type, "target_id": item["id"], "value": answer},
+                resume_path,
+                allow_submit,
+                session_id,
+                messages,
+            )
+            messages.append(f"Applied settings answer for {item['id']}: {outcome}")
+            applied += 1
+            await page.wait_for_timeout(500)
+        except Exception as exc:
+            messages.append(f"Settings answer failed for {item.get('id')}: {exc}")
+    return applied
 
 
 async def _select_listbox_option(page: Any, element: Any, value: str) -> bool:
@@ -920,6 +1019,11 @@ async def run_agent(job_id: str, headless: bool, allow_submit: bool, max_steps: 
                 result["status"] = gate
                 messages.append(f"Human verification gate detected: {gate}")
                 break
+
+            applied_settings = await _apply_known_settings_answers(page, snapshot, resume_path, allow_submit, session_id, messages)
+            if applied_settings:
+                await page.wait_for_timeout(1000)
+                continue
 
             _write_session(
                 session_id,
