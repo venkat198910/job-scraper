@@ -147,9 +147,33 @@ def _extract_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
     except Exception:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
+        start = text.find("{")
+        if start >= 0:
+            depth = 0
+            in_string = False
+            escape = False
+            for index in range(start, len(text)):
+                char = text[index]
+                if escape:
+                    escape = False
+                    continue
+                if char == "\\":
+                    escape = True
+                    continue
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start : index + 1]
+                        candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+                        candidate = candidate.replace(": True", ": true").replace(": False", ": false").replace(": None", ": null")
+                        return json.loads(candidate)
         raise
 
 
@@ -442,6 +466,73 @@ async def _click_fallback(page: Any, preferred: str = "") -> bool:
     return False
 
 
+def _clean_option_label(value: str) -> str:
+    value = re.sub(r"\brequired\b", "", str(value or ""), flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    return bool(re.fullmatch(r"(select one|select|choose|please select|n/a|none)?", str(value or "").strip(), re.IGNORECASE))
+
+
+def _looks_like_opaque_value(value: str) -> bool:
+    value = str(value or "").strip()
+    return bool(re.fullmatch(r"[a-f0-9]{16,}", value, re.IGNORECASE) or re.fullmatch(r"[A-Za-z0-9_-]{24,}", value))
+
+
+async def _select_listbox_option(page: Any, element: Any, value: str) -> bool:
+    try:
+        element_label = await element.evaluate(
+            """(el) => [
+                el.innerText || el.textContent || '',
+                el.getAttribute('aria-label') || '',
+                el.getAttribute('title') || '',
+                el.getAttribute('value') || ''
+            ].join(' ')"""
+        )
+    except Exception:
+        element_label = ""
+
+    desired = _clean_option_label(value)
+    element_label = _clean_option_label(element_label)
+    labels: list[str] = []
+    if desired and not _looks_like_placeholder(desired) and not _looks_like_opaque_value(desired):
+        labels.append(desired)
+    if element_label and not _looks_like_placeholder(element_label):
+        labels.append(element_label)
+    labels = list(dict.fromkeys(labels))
+
+    await element.click(timeout=8000)
+    await page.wait_for_timeout(700)
+
+    for label in labels:
+        patterns = [
+            rf"^{re.escape(label)}$",
+            re.escape(label),
+        ]
+        for pattern in patterns:
+            option = page.get_by_role("option", name=re.compile(pattern, re.IGNORECASE))
+            if await option.count() == 0:
+                option = page.get_by_role("menuitem", name=re.compile(pattern, re.IGNORECASE))
+            if await option.count() == 0:
+                option = page.get_by_text(re.compile(pattern, re.IGNORECASE))
+            if await option.count() > 0:
+                try:
+                    await option.first.click(timeout=8000)
+                except Exception:
+                    await option.first.evaluate("(el) => el.click()", timeout=3000)
+                return True
+
+    if labels:
+        try:
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(500)
+            return True
+        except Exception:
+            return False
+    return True
+
+
 async def _execute_action(page: Any, action: dict[str, Any], resume_path: Path, allow_submit: bool, session_id: str, messages: list[str]) -> str:
     action_type = str(action.get("type") or "").strip().lower()
     target_id = str(action.get("target_id") or "").strip()
@@ -486,6 +577,8 @@ async def _execute_action(page: Any, action: dict[str, Any], resume_path: Path, 
             try:
                 await element.select_option(value=value, timeout=3000)
             except Exception:
+                if await _select_listbox_option(page, element, value):
+                    return f"selected {target_id}"
                 if await _is_editable_field(element):
                     await element.fill(value, timeout=5000)
                     await element.press("Enter", timeout=1000)
