@@ -280,6 +280,7 @@ COMPANY_CAREER_LOCATION_KEYWORDS = [
 ]
 
 COMPANY_CAREER_TARGET_LIMIT = 300
+COMPANY_CAREER_JOBS_PER_TERM = 10
 
 COMPANY_CAREER_TARGETS = [
     # User-priority Workday career pages.
@@ -321,6 +322,22 @@ COMPANY_CAREER_TARGETS = [
     {"name": "NVIDIA", "career_url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "ats": "workday", "host": "nvidia.wd5.myworkdayjobs.com", "tenant": "nvidia", "site": "NVIDIAExternalCareerSite", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Intel", "career_url": "https://intel.wd1.myworkdayjobs.com/External", "ats": "workday", "host": "intel.wd1.myworkdayjobs.com", "tenant": "intel", "site": "External", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Qualcomm", "career_url": "https://qualcomm.wd12.myworkdayjobs.com/External", "ats": "workday", "host": "qualcomm.wd12.myworkdayjobs.com", "tenant": "qualcomm", "site": "External", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Pfizer", "career_url": "https://pfizer.wd1.myworkdayjobs.com/PfizerCareers", "ats": "workday", "host": "pfizer.wd1.myworkdayjobs.com", "tenant": "pfizer", "site": "PfizerCareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Johnson & Johnson", "career_url": "https://jj.wd5.myworkdayjobs.com/JJ", "ats": "workday", "host": "jj.wd5.myworkdayjobs.com", "tenant": "jj", "site": "JJ", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Medtronic", "career_url": "https://medtronic.wd1.myworkdayjobs.com/MedtronicCareers", "ats": "workday", "host": "medtronic.wd1.myworkdayjobs.com", "tenant": "medtronic", "site": "MedtronicCareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Abbott", "career_url": "https://abbott.wd5.myworkdayjobs.com/abbottcareers", "ats": "workday", "host": "abbott.wd5.myworkdayjobs.com", "tenant": "abbott", "site": "abbottcareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Roche", "career_url": "https://roche.wd3.myworkdayjobs.com/roche-ext", "ats": "workday", "host": "roche.wd3.myworkdayjobs.com", "tenant": "roche", "site": "roche-ext", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "GE Healthcare", "career_url": "https://gehc.wd5.myworkdayjobs.com/GEHC_ExternalSite", "ats": "workday", "host": "gehc.wd5.myworkdayjobs.com", "tenant": "gehc", "site": "GEHC_ExternalSite", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Intuitive", "career_url": "https://intuitive.wd1.myworkdayjobs.com/irtc_careers", "ats": "workday", "host": "intuitive.wd1.myworkdayjobs.com", "tenant": "intuitive", "site": "irtc_careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Novartis", "career_url": "https://novartis.wd3.myworkdayjobs.com/Novartis_Careers", "ats": "workday", "host": "novartis.wd3.myworkdayjobs.com", "tenant": "novartis", "site": "Novartis_Careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "AstraZeneca", "career_url": "https://astrazeneca.wd3.myworkdayjobs.com/Careers", "ats": "workday", "host": "astrazeneca.wd3.myworkdayjobs.com", "tenant": "astrazeneca", "site": "Careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Sanofi", "career_url": "https://sanofi.wd3.myworkdayjobs.com/SanofiCareers", "ats": "workday", "host": "sanofi.wd3.myworkdayjobs.com", "tenant": "sanofi", "site": "SanofiCareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Bristol Myers Squibb", "career_url": "https://bristolmyerssquibb.wd5.myworkdayjobs.com/BMS", "ats": "workday", "host": "bristolmyerssquibb.wd5.myworkdayjobs.com", "tenant": "bristolmyerssquibb", "site": "BMS", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Illumina", "career_url": "https://illumina.wd1.myworkdayjobs.com/illumina-careers", "ats": "workday", "host": "illumina.wd1.myworkdayjobs.com", "tenant": "illumina", "site": "illumina-careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Hitachi", "career_url": "https://hitachi.wd1.myworkdayjobs.com/hitachi", "ats": "workday", "host": "hitachi.wd1.myworkdayjobs.com", "tenant": "hitachi", "site": "hitachi", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Micron", "career_url": "https://micron.wd1.myworkdayjobs.com/External", "ats": "workday", "host": "micron.wd1.myworkdayjobs.com", "tenant": "micron", "site": "External", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Siemens Healthineers", "career_url": "https://onehealthineers.wd3.myworkdayjobs.com/SHSJB", "ats": "workday", "host": "onehealthineers.wd3.myworkdayjobs.com", "tenant": "onehealthineers", "site": "SHSJB", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Rockwell Automation", "career_url": "https://rockwellautomation.wd1.myworkdayjobs.com/External_Rockwell_Automation", "ats": "workday", "host": "rockwellautomation.wd1.myworkdayjobs.com", "tenant": "rockwellautomation", "site": "External_Rockwell_Automation", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Workday", "career_url": "https://workday.wd5.myworkdayjobs.com/Workday", "ats": "workday", "host": "workday.wd5.myworkdayjobs.com", "tenant": "workday", "site": "Workday", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Arm", "ats": "jibe", "base_url": "https://careers.arm.com", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {

@@ -1179,7 +1179,8 @@ def _smartrecruiters_description(job: dict) -> str:
 
 def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
     slug = target.get("slug")
-    list_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100"
+    per_term_limit = int(getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
+    list_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit={per_term_limit}"
     payload = _fetch_json(list_url)
     if not isinstance(payload, dict):
         return []
@@ -1268,12 +1269,13 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
     seen_ids: set[str] = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
     applied_facets = target.get("facets") if isinstance(target.get("facets"), dict) else {}
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
     for search_text in search_terms:
         payload = _post_json(
             list_url,
             {
                 "appliedFacets": applied_facets,
-                "limit": 20,
+                "limit": per_term_limit,
                 "offset": 0,
                 "searchText": str(search_text),
             },
@@ -1355,12 +1357,13 @@ def _fetch_jibe_jobs(target: dict) -> list[dict]:
     jobs = []
     seen_ids = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
     for search_text in search_terms:
         query = urlencode(
             {
                 "ActiveFacetID": 0,
                 "CurrentPage": 1,
-                "RecordsPerPage": 20,
+                "RecordsPerPage": per_term_limit,
                 "Distance": 50,
                 "RadiusUnitType": 0,
                 "Keywords": str(search_text),
@@ -1444,9 +1447,10 @@ def _fetch_jibe_api_jobs(target: dict) -> list[dict]:
     jobs = []
     seen_ids = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
     for search_text in search_terms:
         payload = _fetch_json(
-            f"{base_url}/api/jobs?{urlencode({'keywords': str(search_text), 'page': 1})}"
+            f"{base_url}/api/jobs?{urlencode({'keywords': str(search_text), 'page': 1, 'limit': per_term_limit})}"
         )
         if not isinstance(payload, dict):
             continue
