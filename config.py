@@ -26,6 +26,15 @@ SUPABASE_BASE_RESUME_TABLE_NAME = "base_resume"
 
 BASE_RESUME_PATH = "resume.json"
 
+# Optional email alerts for newly scraped jobs. Configure these as GitHub
+# Actions secrets to receive a digest after each pipeline run.
+JOB_ALERT_EMAIL_TO = _clean_env("JOB_ALERT_EMAIL_TO") or _clean_env("ALERT_EMAIL_TO")
+JOB_ALERT_EMAIL_FROM = _clean_env("JOB_ALERT_EMAIL_FROM") or _clean_env("SMTP_FROM") or JOB_ALERT_EMAIL_TO
+SMTP_HOST = _clean_env("SMTP_HOST")
+SMTP_PORT = int(_clean_env("SMTP_PORT") or "587")
+SMTP_USERNAME = _clean_env("SMTP_USERNAME") or _clean_env("SMTP_USER")
+SMTP_PASSWORD = _clean_env("SMTP_PASSWORD") or _clean_env("SMTP_PASS")
+
 # Provider-specific API keys.
 #
 # Keep these separate. Fallback models use different providers, so a Gemini key
@@ -273,6 +282,10 @@ COMPANY_CAREER_LOCATION_KEYWORDS = [
 COMPANY_CAREER_TARGET_LIMIT = 300
 
 COMPANY_CAREER_TARGETS = [
+    # User-priority Workday career pages.
+    {"name": "CBA India Services Private Limited", "ats": "workday", "host": "cba.wd3.myworkdayjobs.com", "tenant": "cba", "site": "CommBank_Careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Lloyds Technology Centre", "ats": "workday", "host": "lbg.wd3.myworkdayjobs.com", "tenant": "lbg", "site": "Lloyds_Technology_Centre", "search_terms": ["DevOps Engineer", "DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+
     # Automotive/product engineering companies requested first.
     {"name": "Mercedes-Benz", "ats": "smartrecruiters", "slug": "MercedesBenz"},
     {"name": "Mercedes-Benz Group", "ats": "smartrecruiters", "slug": "MercedesBenzGroup"},

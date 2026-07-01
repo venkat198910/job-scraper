@@ -27,6 +27,12 @@ jobs:
       APPLICATION_DEFAULT_ANSWERS_JSON: ${{ secrets.APPLICATION_DEFAULT_ANSWERS_JSON }}
       APPLICATION_PORTAL_EMAIL: ${{ secrets.APPLICATION_PORTAL_EMAIL }}
       APPLICATION_PORTAL_PASSWORD: ${{ secrets.APPLICATION_PORTAL_PASSWORD }}
+      JOB_ALERT_EMAIL_TO: ${{ secrets.JOB_ALERT_EMAIL_TO }}
+      JOB_ALERT_EMAIL_FROM: ${{ secrets.JOB_ALERT_EMAIL_FROM }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
 
     steps:
     - name: Checkout repository code

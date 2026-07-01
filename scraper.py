@@ -5,6 +5,7 @@ import time
 import random 
 import logging
 import config
+import job_alerts
 import user_agents
 import supabase_utils
 from markdownify import markdownify as md
@@ -1431,6 +1432,7 @@ def process_company_careers(limit: int | None = None) -> list:
 if __name__ == "__main__":
 
     total_new_jobs_saved = 0
+    alert_jobs = []
 
     scraping_sources = app_settings.get_enabled_scraping_sources()
 
@@ -1451,6 +1453,7 @@ if __name__ == "__main__":
                     print(f"\n--- Saving {len(new_linkedin_job_details)} new job(s) for query '{query}' in '{location}' ---")
                     supabase_utils.save_jobs_to_supabase(new_linkedin_job_details)
                     total_new_jobs_saved += len(new_linkedin_job_details)
+                    alert_jobs.extend(new_linkedin_job_details)
                 else:
                     print(f"\nNo new job details were fetched or processed for query '{query}' in '{location}'.")
     else:
@@ -1471,6 +1474,7 @@ if __name__ == "__main__":
                 logging.info(f"\n--- Saving {len(new_careers_future_job_details)} new job(s) for query '{query}' ---")
                 supabase_utils.save_jobs_to_supabase(new_careers_future_job_details)
                 total_new_jobs_saved += len(new_careers_future_job_details)
+                alert_jobs.extend(new_careers_future_job_details)
             else:
                 logging.info(f"\nNo new job details were fetched or processed for query '{query}'.")
     else:
@@ -1486,11 +1490,14 @@ if __name__ == "__main__":
             logging.info("\n--- Saving %s new company career job(s) ---", len(new_company_career_jobs))
             supabase_utils.save_jobs_to_supabase(new_company_career_jobs)
             total_new_jobs_saved += len(new_company_career_jobs)
+            alert_jobs.extend(new_company_career_jobs)
         else:
             logging.info("\nNo new company career jobs were fetched or processed.")
     else:
         logging.info("\n--- Skipping Company Careers Job Scraping per config ---")
 
-    # --- End of Script ---      
+    # --- End of Script ---
+    if alert_jobs:
+        job_alerts.send_new_jobs_email(alert_jobs, source_label="JobTrack pipeline")
     logging.info(f"\n{'='*20} Job scraping script finished {'='*20}")
     logging.info(f"Total new jobs saved across all queries: {total_new_jobs_saved}")
