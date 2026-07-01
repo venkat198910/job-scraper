@@ -1,5 +1,6 @@
 from supabase import create_client, Client
 import config # Import configuration
+from email.utils import parsedate_to_datetime
 from typing import Optional, Any, Dict
 from models import Resume
 import datetime # Import datetime module
@@ -17,6 +18,65 @@ supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_RO
 def _missing_schema_column(error: Exception) -> str | None:
     match = re.search(r"Could not find the '([^']+)' column", str(error))
     return match.group(1) if match else None
+
+
+def _normalize_supabase_timestamp(value: Any) -> str | None:
+    """Return an ISO timestamp accepted by Supabase, or None for invalid display dates."""
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        parsed = value
+    elif isinstance(value, datetime.date):
+        parsed = datetime.datetime.combine(value, datetime.time.min, tzinfo=datetime.timezone.utc)
+    else:
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "null", "n/a", "na"}:
+            return None
+
+        parsed = None
+        iso_text = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.datetime.fromisoformat(iso_text)
+        except ValueError:
+            pass
+
+        if parsed is None:
+            try:
+                parsed = parsedate_to_datetime(text)
+            except (TypeError, ValueError, IndexError, OverflowError):
+                pass
+
+        if parsed is None:
+            normalized_text = re.sub(r"\b([A-Za-z]{3,9})\.", r"\1", text)
+            normalized_text = re.sub(r"\s+", " ", normalized_text)
+            for date_format in (
+                "%b %d, %Y",
+                "%B %d, %Y",
+                "%d %b %Y",
+                "%d %B %Y",
+                "%Y-%m-%d",
+            ):
+                try:
+                    parsed = datetime.datetime.strptime(normalized_text, date_format)
+                    break
+                except ValueError:
+                    continue
+
+        if parsed is None:
+            logging.warning("Dropping invalid timestamp value before Supabase upsert: %r", value)
+            return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc).isoformat()
+
+
+def _normalize_job_timestamps(job: dict) -> dict:
+    normalized_job = dict(job)
+    for field in ("posted_at", "scraped_at", "application_date"):
+        if field in normalized_job:
+            normalized_job[field] = _normalize_supabase_timestamp(normalized_job.get(field))
+    return normalized_job
 
 # --- Supabase Functions ---
 def get_existing_jobs_from_supabase(batch_size: int = 1000) -> tuple[set, set]:
@@ -79,16 +139,17 @@ def save_jobs_to_supabase(jobs_data: list):
     # (Assuming job_id in jobs_data is already the correct string type for your 'text' column)
     processed_jobs_data = []
     for job in jobs_data:
-        if 'job_id' in job and job['job_id'] is not None:
+        normalized_job = _normalize_job_timestamps(job)
+        if 'job_id' in normalized_job and normalized_job['job_id'] is not None:
              # If your Supabase job_id column was numeric, you'd convert here:
              # try:
-             #     job['job_id'] = int(job['job_id'])
-             #     processed_jobs_data.append(job)
+             #     normalized_job['job_id'] = int(normalized_job['job_id'])
+             #     processed_jobs_data.append(normalized_job)
              # except (ValueError, TypeError):
-             #     print(f"Warning: Invalid job_id format found: {job.get('job_id')}. Skipping.")
+             #     print(f"Warning: Invalid job_id format found: {normalized_job.get('job_id')}. Skipping.")
              # Since it's text, just ensure it's a string (it likely already is)
-             job['job_id'] = str(job['job_id'])
-             processed_jobs_data.append(job)
+             normalized_job['job_id'] = str(normalized_job['job_id'])
+             processed_jobs_data.append(normalized_job)
         else:
             print(f"Warning: Job data missing job_id. Skipping: {job}")
 
