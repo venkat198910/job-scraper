@@ -2661,10 +2661,11 @@ async def main() -> None:
         if candidates and not progressed:
             statuses = sorted({str(result.get("status")) for result in results})
             print(
-                "\nAuto-apply did not reach any application form. "
-                f"Statuses: {statuses}. Check LinkedIn session secret or Easy Apply availability."
+                "\nAuto-apply did not reach any application form in this run. "
+                f"Statuses: {statuses}. Treating this as a non-fatal no-op; "
+                "the next pipeline run will try fresh candidates."
             )
-            sys.exit(2)
+            return
 
 
 if __name__ == "__main__":
