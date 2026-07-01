@@ -1053,6 +1053,7 @@ def _normalize_greenhouse_job(target: dict, job: dict) -> dict | None:
         "posted_at": job.get("updated_at") or "",
         "job_url": job.get("absolute_url"),
         "apply_url": job.get("absolute_url"),
+        "career_url": target.get("career_url") or "",
     }
 
 def _fetch_greenhouse_jobs(target: dict) -> list[dict]:
@@ -1096,6 +1097,7 @@ def _normalize_lever_job(target: dict, job: dict) -> dict | None:
         "posted_at": job.get("createdAt") or "",
         "job_url": job.get("hostedUrl") or job.get("applyUrl"),
         "apply_url": job.get("hostedUrl") or job.get("applyUrl"),
+        "career_url": target.get("career_url") or "",
     }
 
 def _fetch_lever_jobs(target: dict) -> list[dict]:
@@ -1135,6 +1137,7 @@ def _normalize_ashby_job(target: dict, job: dict) -> dict | None:
         "posted_at": job.get("publishedAt") or "",
         "job_url": job.get("jobUrl") or job.get("applyUrl"),
         "apply_url": job.get("jobUrl") or job.get("applyUrl"),
+        "career_url": target.get("career_url") or "",
     }
 
 def _fetch_ashby_jobs(target: dict) -> list[dict]:
@@ -1200,6 +1203,7 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
                 "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
                 "job_url": job.get("ref") or summary.get("ref"),
                 "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
+                "career_url": target.get("career_url") or "",
             }
         )
     return jobs
@@ -1249,6 +1253,7 @@ def _normalize_workday_job(target: dict, summary: dict, detail: dict | None) -> 
         "posted_at": info.get("startDate") or summary.get("postedOn") or "",
         "job_url": _workday_job_url(target, external_path),
         "apply_url": _workday_job_url(target, external_path),
+        "career_url": target.get("career_url") or "",
     }
 
 def _fetch_workday_jobs(target: dict) -> list[dict]:
@@ -1262,8 +1267,17 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
     jobs: list[dict] = []
     seen_ids: set[str] = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    applied_facets = target.get("facets") if isinstance(target.get("facets"), dict) else {}
     for search_text in search_terms:
-        payload = _post_json(list_url, {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": str(search_text)})
+        payload = _post_json(
+            list_url,
+            {
+                "appliedFacets": applied_facets,
+                "limit": 20,
+                "offset": 0,
+                "searchText": str(search_text),
+            },
+        )
         if not isinstance(payload, dict):
             continue
         for summary in payload.get("jobPostings", []):
@@ -1309,6 +1323,7 @@ def _normalize_jibe_job(target: dict, card) -> dict | None:
         "posted_at": detail.get("posted_at") or "",
         "job_url": job_url,
         "apply_url": job_url,
+        "career_url": target.get("career_url") or target.get("base_url") or "",
     }
 
 def _fetch_jibe_job_detail(job_url: str) -> dict:
@@ -1373,6 +1388,78 @@ def _fetch_jibe_jobs(target: dict) -> list[dict]:
             jobs.append(job_details)
     return jobs
 
+def _normalize_jibe_api_job(target: dict, job: dict) -> dict | None:
+    data = job.get("data") if isinstance(job.get("data"), dict) else job
+    if not isinstance(data, dict):
+        return None
+
+    slug = _plain_text(data.get("slug") or data.get("req_id"))
+    if not slug:
+        return None
+
+    base_url = str(target.get("base_url") or "").rstrip("/")
+    job_path = str(target.get("job_path") or "/jobs/{slug}")
+    language = _plain_text(data.get("language") or "en-us")
+    job_url = urljoin(base_url, job_path.format(slug=slug))
+    if language and "lang=" not in job_url:
+        separator = "&" if "?" in job_url else "?"
+        job_url = f"{job_url}{separator}lang={language}"
+
+    description = data.get("description") or data.get("qualifications") or data.get("responsibilities") or ""
+    if "<" in str(description):
+        description = convert_html_to_markdown(str(description))
+
+    location = (
+        data.get("full_location")
+        or data.get("short_location")
+        or ", ".join(_plain_text(part) for part in [data.get("city"), data.get("state"), data.get("country")] if _plain_text(part))
+        or data.get("location_name")
+        or ""
+    )
+    categories = data.get("categories") if isinstance(data.get("categories"), list) else data.get("category")
+    if isinstance(categories, list):
+        level = ", ".join(_plain_text(item) for item in categories if _plain_text(item))
+    else:
+        level = _plain_text(categories or data.get("employment_type"))
+
+    return {
+        "job_id": f"jibeapi-{target.get('name', '').lower().replace(' ', '-')}-{slug}",
+        "company": target.get("name"),
+        "job_title": _plain_text(data.get("title")),
+        "location": _plain_text(location),
+        "level": level,
+        "provider": "company_careers_jibe_api",
+        "description": description,
+        "posted_at": data.get("posted_date") or data.get("create_date") or data.get("update_date") or "",
+        "job_url": job_url,
+        "apply_url": data.get("apply_url") or job_url,
+        "career_url": target.get("career_url") or target.get("base_url") or "",
+    }
+
+def _fetch_jibe_api_jobs(target: dict) -> list[dict]:
+    base_url = str(target.get("base_url") or "").rstrip("/")
+    if not base_url:
+        return []
+
+    jobs = []
+    seen_ids = set()
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        payload = _fetch_json(
+            f"{base_url}/api/jobs?{urlencode({'keywords': str(search_text), 'page': 1})}"
+        )
+        if not isinstance(payload, dict):
+            continue
+        for job in payload.get("jobs", []):
+            if not isinstance(job, dict):
+                continue
+            job_details = _normalize_jibe_api_job(target, job)
+            if not job_details or job_details["job_id"] in seen_ids:
+                continue
+            seen_ids.add(job_details["job_id"])
+            jobs.append(job_details)
+    return jobs
+
 def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
     ats = str(target.get("ats") or "").lower()
     if ats == "greenhouse":
@@ -1387,8 +1474,20 @@ def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
         return _fetch_workday_jobs(target)
     if ats == "jibe":
         return _fetch_jibe_jobs(target)
+    if ats == "jibe_api":
+        return _fetch_jibe_api_jobs(target)
     logging.info("Unsupported company career ATS '%s' for %s", ats, target.get("name"))
     return []
+
+def _with_career_url(target: dict) -> dict:
+    if target.get("career_url"):
+        return target
+    career_url = getattr(config, "COMPANY_CAREER_PAGE_URLS", {}).get(str(target.get("name") or ""))
+    if not career_url:
+        return target
+    enriched = dict(target)
+    enriched["career_url"] = career_url
+    return enriched
 
 def process_company_careers(limit: int | None = None) -> list:
     """Fetch matching jobs from configured top company career pages."""
@@ -1404,6 +1503,7 @@ def process_company_careers(limit: int | None = None) -> list:
             break
         if not isinstance(target, dict):
             continue
+        target = _with_career_url(target)
 
         logging.info("Scraping company careers target: %s (%s)", target.get("name"), target.get("ats"))
         for details in _fetch_company_career_target_jobs(target):
