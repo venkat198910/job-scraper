@@ -1498,6 +1498,14 @@ def process_company_careers(limit: int | None = None) -> list:
     targets = list(getattr(config, "COMPANY_CAREER_TARGETS", []))
     target_limit = int(getattr(config, "COMPANY_CAREER_TARGET_LIMIT", 300) or 300)
     targets = targets[:target_limit]
+    targets_per_run = int(getattr(config, "COMPANY_CAREER_TARGETS_PER_RUN", target_limit) or target_limit)
+    if targets_per_run > 0:
+        targets = targets[:targets_per_run]
+    logging.info(
+        "Company Careers enabled: scanning %s target(s), result limit=%s",
+        len(targets),
+        limit if limit is not None else "unlimited",
+    )
 
     job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
     detailed_new_jobs = []
@@ -1539,6 +1547,7 @@ if __name__ == "__main__":
     alert_jobs = []
 
     scraping_sources = app_settings.get_enabled_scraping_sources()
+    logging.info("Enabled scraping sources: %s", ", ".join(scraping_sources) or "none")
 
     # Get jobs from LinkedIn
     if "linkedin" in scraping_sources:
