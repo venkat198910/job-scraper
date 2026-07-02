@@ -1534,8 +1534,18 @@ def process_company_careers(limit: int | None = None) -> list:
     target_limit = int(getattr(config, "COMPANY_CAREER_TARGET_LIMIT", 300) or 300)
     targets = targets[:target_limit]
     targets_per_run = int(getattr(config, "COMPANY_CAREER_TARGETS_PER_RUN", target_limit) or target_limit)
-    if targets_per_run > 0:
-        targets = targets[:targets_per_run]
+    total_targets = len(targets)
+    if targets_per_run > 0 and total_targets > targets_per_run:
+        batch_index = int(datetime.now(timezone.utc).timestamp() // 3600)
+        start = (batch_index * targets_per_run) % total_targets
+        end = start + targets_per_run
+        targets = (targets + targets)[start:end]
+        logging.info(
+            "Company Careers target rotation: scanning window start=%s size=%s total=%s",
+            start,
+            len(targets),
+            total_targets,
+        )
     logging.info(
         "Company Careers enabled: scanning %s target(s), result limit=%s",
         len(targets),
