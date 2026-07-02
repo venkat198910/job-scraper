@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS "public"."jobs" (
     "provider" "text",
     "job_url" "text",
     "apply_url" "text",
+    "career_url" "text",
     "posted_at" timestamp with time zone
 );
 
@@ -127,6 +128,8 @@ COMMENT ON COLUMN "public"."jobs"."application_date" IS 'Timestamp when an appli
 COMMENT ON COLUMN "public"."jobs"."job_url" IS 'Canonical job posting URL from the source provider';
 
 COMMENT ON COLUMN "public"."jobs"."apply_url" IS 'Direct application URL for company career portals when available';
+
+COMMENT ON COLUMN "public"."jobs"."career_url" IS 'Company career search page URL used by the scraper';
 
 
 
