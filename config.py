@@ -207,6 +207,15 @@ EXCLUDED_JOB_TITLE_KEYWORDS = [
     "erp",
     "netsuite",
     "servicenow consultant",
+    "compensation",
+    "total rewards",
+    "people partner",
+    "people business partner",
+    "talent acquisition",
+    "recruiter",
+    "human resources",
+    "hr business partner",
+    "payroll",
 ]
 
 # Date Filter
@@ -265,6 +274,23 @@ COMPANY_CAREER_ROLE_KEYWORDS = [
     "devsecops",
     "release engineer",
     "observability",
+]
+
+COMPANY_CAREER_TITLE_KEYWORDS = [
+    "devops",
+    "site reliability",
+    "sre",
+    "cloud",
+    "platform",
+    "infrastructure",
+    "kubernetes",
+    "terraform",
+    "devsecops",
+    "release",
+    "observability",
+    "gcp",
+    "aws",
+    "azure",
 ]
 
 COMPANY_CAREER_LOCATION_KEYWORDS = [

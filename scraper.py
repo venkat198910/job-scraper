@@ -191,12 +191,10 @@ def _job_matches_excluded_title_keywords(job_details: dict) -> bool:
         return False
 
     title = (job_details.get("job_title") or "").lower()
-    description = (job_details.get("description") or "").lower()
-    haystack = f"{title}\n{description[:2000]}"
-    if not haystack.strip():
+    if not title.strip():
         return False
 
-    return any(keyword.lower() in haystack for keyword in excluded_keywords)
+    return any(keyword.lower() in title for keyword in excluded_keywords)
 
 def _get_careers_future_job_company_name(job_item: dict) -> str | None:
     """Helper to extract company name, preferring hiringCompany."""
@@ -969,10 +967,11 @@ def _job_matches_company_career_keywords(job_details: dict) -> bool:
         return False
 
     title = (job_details.get("job_title") or "").lower()
-    description = (job_details.get("description") or "").lower()
-    haystack = f"{title}\n{description}"
-    keywords = getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
-    return any(str(keyword).lower() in haystack for keyword in keywords)
+    title_keywords = (
+        getattr(config, "COMPANY_CAREER_TITLE_KEYWORDS", None)
+        or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    )
+    return any(str(keyword).lower() in title for keyword in title_keywords)
 
 def _job_matches_company_career_location(job_details: dict) -> bool:
     location = (job_details.get("location") or "").lower()
