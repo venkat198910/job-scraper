@@ -6,6 +6,8 @@ from models import Resume
 import datetime # Import datetime module
 import logging # Import logging
 import re
+from bs4 import BeautifulSoup
+from markdownify import markdownify as md
 
 # --- Initialize Supabase Client ---
 # Ensure URL and Key are provided
@@ -76,7 +78,54 @@ def _normalize_job_timestamps(job: dict) -> dict:
     for field in ("posted_at", "scraped_at", "application_date"):
         if field in normalized_job:
             normalized_job[field] = _normalize_supabase_timestamp(normalized_job.get(field))
+    if "description" in normalized_job:
+        normalized_job["description"] = _normalize_job_description(normalized_job.get("description"))
     return normalized_job
+
+
+def _looks_like_html(value: str) -> bool:
+    return bool(re.search(r"<\s*/?\s*[a-zA-Z][^>]*>", value or ""))
+
+
+def _normalize_job_description(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    if not _looks_like_html(text):
+        return text
+
+    try:
+        soup = BeautifulSoup(text, "html.parser")
+        for tag in soup.find_all(["script", "style", "nav", "footer", "header", "iframe", "noscript"]):
+            tag.decompose()
+
+        markdown_text = md(
+            str(soup),
+            heading_style="ATX",
+            bullets="-",
+            strip=["img"],
+        )
+        lines = markdown_text.splitlines()
+        cleaned_lines = []
+        prev_blank = False
+        for line in lines:
+            cleaned = re.sub(r"\s+", " ", line).strip()
+            if not cleaned:
+                if not prev_blank:
+                    cleaned_lines.append("")
+                prev_blank = True
+            else:
+                cleaned_lines.append(cleaned)
+                prev_blank = False
+
+        return "\n".join(cleaned_lines).strip()
+    except Exception as exc:
+        logging.warning("Could not normalize HTML job description; keeping original text. Error: %s", exc)
+        return text
 
 # --- Supabase Functions ---
 def get_existing_jobs_from_supabase(batch_size: int = 1000) -> tuple[set, set]:
