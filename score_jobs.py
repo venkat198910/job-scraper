@@ -202,10 +202,13 @@ def rescore_jobs_with_custom_resume():
     """Fetches jobs with custom resumes and re-scores them."""
     logging.info("--- Starting Job Re-scoring with Custom Resumes ---")
     rescore_start_time = time.time()
+    rescore_limit = app_settings.get_advanced_int("jobsToRescorePerRun")
+    if rescore_limit <= 0:
+        logging.info("Custom resume re-scoring is disabled because jobsToRescorePerRun is 0.")
+        logging.info("--- Job Re-scoring Finished (Disabled) ---")
+        return
 
-    jobs_to_rescore = supabase_utils.get_jobs_to_rescore(
-        app_settings.get_advanced_int("jobsToRescorePerRun")
-    )
+    jobs_to_rescore = supabase_utils.get_jobs_to_rescore(rescore_limit)
     if not jobs_to_rescore:
         logging.info("No jobs require re-scoring with custom resumes at this time.")
         logging.info("--- Job Re-scoring Finished (No Jobs) ---")

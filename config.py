@@ -571,7 +571,8 @@ JOBS_TO_SCORE_PER_RUN = 10
 
 JOBS_TO_CUSTOMIZE_PER_RUN = 5
 
-JOBS_TO_RESCORE_PER_RUN = 5
+# 0 disables custom-resume re-scoring. Custom resume generation still runs.
+JOBS_TO_RESCORE_PER_RUN = 0
 
 MAX_JOBS_PER_SEARCH = {
     "linkedin": 20,
