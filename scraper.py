@@ -967,11 +967,45 @@ def _job_matches_company_career_keywords(job_details: dict) -> bool:
         return False
 
     title = (job_details.get("job_title") or "").lower()
+    description = (job_details.get("description") or "").lower()
+    level = (job_details.get("level") or "").lower()
     title_keywords = (
         getattr(config, "COMPANY_CAREER_TITLE_KEYWORDS", None)
         or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
     )
-    return any(str(keyword).lower() in title for keyword in title_keywords)
+    if any(str(keyword).lower() in title for keyword in title_keywords):
+        return True
+
+    generic_engineering_titles = (
+        "software engineer",
+        "senior software engineer",
+        "staff software engineer",
+        "principal software engineer",
+        "technical lead",
+        "engineering manager",
+    )
+    if not any(generic_title in title for generic_title in generic_engineering_titles):
+        return False
+
+    strong_description_keywords = (
+        "devops",
+        "sre",
+        "site reliability",
+        "kubernetes",
+        "terraform",
+        "ci/cd",
+        "cicd",
+        "cloud platform",
+        "platform engineering",
+        "infrastructure",
+        "observability",
+        "prometheus",
+        "grafana",
+        "jenkins",
+        "github actions",
+    )
+    haystack = f"{title}\n{level}\n{description}"
+    return any(keyword in haystack for keyword in strong_description_keywords)
 
 def _job_matches_company_career_location(job_details: dict) -> bool:
     location = (job_details.get("location") or "").lower()
@@ -995,7 +1029,12 @@ def _parse_company_career_posted_at(value: object) -> datetime | None:
 def _company_career_posted_recent_enough(job_details: dict) -> bool:
     posted_at = _parse_company_career_posted_at(job_details.get("posted_at"))
     if not posted_at:
-        return True
+        logging.info(
+            "Skipping company career job %s | %s because posted_at is missing or invalid.",
+            job_details.get("company"),
+            job_details.get("job_title"),
+        )
+        return False
 
     job_expiry_days = app_settings.get_advanced_int("jobExpiryDays")
     if job_expiry_days <= 0:

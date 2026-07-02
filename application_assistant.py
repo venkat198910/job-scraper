@@ -69,6 +69,85 @@ def linkedin_job_url(job_id: str) -> str:
     return f"https://www.linkedin.com/jobs/view/{job_id}"
 
 
+def _target_career_url(target: dict[str, Any]) -> str:
+    career_url = str(target.get("career_url") or "").strip()
+    if career_url:
+        return career_url
+
+    target_name = str(target.get("name") or "").strip()
+    catalog_url = str(getattr(config, "COMPANY_CAREER_PAGE_URLS", {}).get(target_name) or "").strip()
+    if catalog_url:
+        return catalog_url
+
+    ats = str(target.get("ats") or "").lower()
+    if ats == "workday" and target.get("host") and target.get("site"):
+        return f"https://{target['host']}/{target['site']}"
+    if ats in {"jibe", "jibe_api"} and target.get("base_url"):
+        return str(target["base_url"])
+    if ats == "greenhouse" and target.get("slug"):
+        return f"https://job-boards.greenhouse.io/{target['slug']}"
+    if ats == "lever" and target.get("slug"):
+        return f"https://jobs.lever.co/{target['slug']}"
+    if ats == "ashby" and target.get("slug"):
+        return f"https://jobs.ashbyhq.com/{target['slug']}"
+    if ats == "smartrecruiters" and target.get("slug"):
+        return f"https://jobs.smartrecruiters.com/{target['slug']}"
+    return ""
+
+
+def _company_career_target_for_job(job: dict[str, Any]) -> dict[str, Any] | None:
+    provider = str(job.get("provider") or "").lower()
+    company = str(job.get("company") or "").strip().lower()
+    job_id = str(job.get("job_id") or "")
+
+    for target in getattr(config, "COMPANY_CAREER_TARGETS", []):
+        if not isinstance(target, dict):
+            continue
+        target_name = str(target.get("name") or "").strip().lower()
+        target_ats = str(target.get("ats") or "").lower()
+        target_tenant = str(target.get("tenant") or "").lower()
+        target_site = str(target.get("site") or "")
+        target_slug = str(target.get("slug") or "").lower()
+
+        if company and target_name == company:
+            return target
+        if provider == "company_careers_workday" and job_id.startswith(f"workday-{target_tenant}-{target_site}-"):
+            return target
+        if provider == "company_careers_greenhouse" and target_slug and job_id.startswith(f"greenhouse-{target_slug}-"):
+            return target
+        if provider == "company_careers_lever" and target_slug and job_id.startswith(f"lever-{target_slug}-"):
+            return target
+        if provider == "company_careers_ashby" and target_slug and job_id.startswith(f"ashby-{target_slug}-"):
+            return target
+        if provider == "company_careers_smartrecruiters" and target_slug and job_id.startswith(f"smartrecruiters-{target_slug}-"):
+            return target
+        if target_ats in {"jibe", "jibe_api"} and company and target_name == company:
+            return target
+
+    return None
+
+
+def _company_career_fallback_url(job: dict[str, Any]) -> str:
+    provider = str(job.get("provider") or "").lower()
+    job_id = str(job.get("job_id") or "")
+
+    if provider == "company_careers_greenhouse":
+        match = re.match(r"^greenhouse-(.+)-(\d+)$", job_id)
+        if match:
+            return f"https://job-boards.greenhouse.io/{match.group(1)}/jobs/{match.group(2)}"
+    if provider == "company_careers_lever":
+        match = re.match(r"^lever-(.+)-(.+)$", job_id)
+        if match:
+            return f"https://jobs.lever.co/{match.group(1)}/{match.group(2)}"
+    if provider == "company_careers_ashby":
+        match = re.match(r"^ashby-(.+)-(.+)$", job_id)
+        if match:
+            return f"https://jobs.ashbyhq.com/{match.group(1)}/{match.group(2)}"
+
+    target = _company_career_target_for_job(job)
+    return _target_career_url(target) if target else ""
+
+
 def detect_portal(apply_url: str, provider: str = "") -> str:
     for portal, pattern in PORTAL_PATTERNS.items():
         if pattern.search(apply_url or ""):
@@ -105,7 +184,18 @@ def build_apply_url(job: dict[str, Any]) -> str:
     provider = (job.get("provider") or "").lower()
     if provider == "linkedin":
         return linkedin_job_url(str(job["job_id"]))
-    return str(job.get("apply_url") or job.get("job_url") or job.get("url") or "")
+    explicit_url = str(
+        job.get("apply_url")
+        or job.get("job_url")
+        or job.get("url")
+        or job.get("career_url")
+        or ""
+    ).strip()
+    if explicit_url:
+        return explicit_url
+    if provider.startswith("company_careers"):
+        return _company_career_fallback_url(job)
+    return ""
 
 
 def _score(job: dict[str, Any]) -> int:
@@ -133,10 +223,16 @@ def _parse_datetime(value: str | None) -> datetime | None:
 def _candidate_age_minutes(candidate: ApplicationCandidate) -> float | None:
     posted_at = _parse_datetime(candidate.posted_at)
     scraped_at = _parse_datetime(candidate.scraped_at)
-    freshest = max(
-        [timestamp for timestamp in (posted_at, scraped_at) if timestamp is not None],
-        default=None,
-    )
+    # Company career pages can return old postings during a fresh scrape. When
+    # the real posting date exists, use it instead of treating scraped_at as
+    # freshness.
+    if str(candidate.provider or "").startswith("company_careers") and posted_at:
+        freshest = posted_at
+    else:
+        freshest = max(
+            [timestamp for timestamp in (posted_at, scraped_at) if timestamp is not None],
+            default=None,
+        )
     if not freshest:
         return None
     return (datetime.now(timezone.utc) - freshest).total_seconds() / 60
@@ -156,13 +252,13 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
     try:
         response = (
             supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
-            .select("job_id, posted_at, scraped_at, apply_url, job_url")
+            .select("job_id, posted_at, scraped_at, apply_url, job_url, career_url")
             .in_("job_id", job_ids)
             .execute()
         )
     except Exception as exc:
         missing_column = supabase_utils._missing_schema_column(exc)
-        if missing_column in {"apply_url", "job_url"}:
+        if missing_column in {"apply_url", "job_url", "career_url"}:
             logging.warning(
                 "Supabase jobs table is missing %s. Loading candidate timestamps without portal URLs.",
                 missing_column,
@@ -191,6 +287,7 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
             "scraped_at": str(row.get("scraped_at") or ""),
             "apply_url": str(row.get("apply_url") or ""),
             "job_url": str(row.get("job_url") or ""),
+            "career_url": str(row.get("career_url") or ""),
         }
     return job_times
 
@@ -2392,6 +2489,75 @@ def print_candidates(candidates: list[ApplicationCandidate]) -> None:
         )
 
 
+def backfill_application_queue_urls(limit: int = 200) -> int:
+    try:
+        response = (
+            supabase_utils.supabase.table(APPLICATION_QUEUE_TABLE)
+            .select("id,job_id,application_type,portal,status,apply_url,notes")
+            .order("updated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        print(f"Could not read {APPLICATION_QUEUE_TABLE}. Apply the application_queue migration first. Error: {exc}")
+        return 0
+
+    rows = response.data or []
+    updated = 0
+    for row in rows:
+        existing_url = str(row.get("apply_url") or "").strip()
+        if existing_url:
+            continue
+
+        notes = row.get("notes") if isinstance(row.get("notes"), dict) else {}
+        provider = str(row.get("portal") or notes.get("provider") or "").strip()
+        job = {
+            "job_id": str(row.get("job_id") or ""),
+            "provider": provider,
+            "company": str(notes.get("company") or ""),
+            "job_title": str(notes.get("job_title") or ""),
+        }
+
+        try:
+            job_response = (
+                supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+                .select("job_id,company,job_title,provider")
+                .eq("job_id", job["job_id"])
+                .limit(1)
+                .execute()
+            )
+            job_rows = job_response.data or []
+            if job_rows:
+                job = {**job, **job_rows[0], "provider": job_rows[0].get("provider") or provider}
+        except Exception as exc:
+            logging.warning("Could not enrich queue row %s from jobs table: %s", job["job_id"], exc)
+
+        apply_url = build_apply_url(job)
+        if not apply_url:
+            logging.warning("Could not derive apply URL for queued job %s (%s).", job["job_id"], provider)
+            continue
+
+        next_notes = dict(notes)
+        next_notes["backfilled_apply_url"] = apply_url
+        next_notes.setdefault("company", job.get("company") or "")
+        next_notes.setdefault("job_title", job.get("job_title") or "")
+        try:
+            supabase_utils.supabase.table(APPLICATION_QUEUE_TABLE).update(
+                {
+                    "apply_url": apply_url,
+                    "notes": next_notes,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", row["id"]).execute()
+            updated += 1
+            print(f"Backfilled {job['job_id']}: {apply_url}")
+        except Exception as exc:
+            print(f"Could not update queue row {job['job_id']}. Apply the queue URL migration first. Error: {exc}")
+
+    print(f"Backfilled {updated} application queue URL(s).")
+    return updated
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare application candidates without auto-submitting.")
     parser.add_argument(
@@ -2403,6 +2569,7 @@ async def main() -> None:
             "prepare-workday-profile",
             "prepare-company-portal",
             "auto-apply",
+            "backfill-queue-urls",
         ],
         default="plan",
     )
@@ -2462,6 +2629,10 @@ async def main() -> None:
         if args.daily_submit_limit is not None
         else int(automation_settings.get("maxDailyApplications") or 0)
     )
+
+    if args.mode == "backfill-queue-urls":
+        backfill_application_queue_urls(limit=args.limit)
+        return
 
     if args.mode in {"prepare-workday-profile", "prepare-company-portal"} and args.apply_url:
         if args.mode == "prepare-workday-profile":

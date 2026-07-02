@@ -296,13 +296,13 @@ COMPANY_CAREER_TITLE_KEYWORDS = [
 COMPANY_CAREER_LOCATION_KEYWORDS = [
     "bengaluru",
     "bangalore",
-    "karnataka",
-    "india",
+    "bangalore urban",
+    "greater bengaluru",
     "dubai",
     "abu dhabi",
+    "abu dhabi emirate",
     "united arab emirates",
     "uae",
-    "remote",
 ]
 
 COMPANY_CAREER_TARGET_LIMIT = 300
@@ -332,6 +332,33 @@ COMPANY_CAREER_TARGETS = [
         "tenant": "lbg",
         "site": "Lloyds_Technology_Centre",
         "search_terms": ["DevOps Engineer", "DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {
+        "name": "Deloitte Ireland",
+        "career_url": "https://deloitteie.wd3.myworkdayjobs.com/experienced_professionals",
+        "ats": "workday",
+        "host": "deloitteie.wd3.myworkdayjobs.com",
+        "tenant": "deloitteie",
+        "site": "experienced_professionals",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {
+        "name": "PwC Global",
+        "career_url": "https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers",
+        "ats": "workday",
+        "host": "pwc.wd3.myworkdayjobs.com",
+        "tenant": "pwc",
+        "site": "Global_Experienced_Careers",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {
+        "name": "PwC US",
+        "career_url": "https://pwc.wd3.myworkdayjobs.com/US_Experienced_Careers",
+        "ats": "workday",
+        "host": "pwc.wd3.myworkdayjobs.com",
+        "tenant": "pwc",
+        "site": "US_Experienced_Careers",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
     },
 
     # Automotive/product engineering companies requested first.
@@ -437,6 +464,17 @@ COMPANY_CAREER_TARGETS = [
 COMPANY_CAREER_PAGE_URLS = {
     "CBA India Services Private Limited": "https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers?q=DevOps&locationCountry=c4f78be1a8f14da0ab49ce1162348a5e&hiringCompany=007f52aebee601634bb894dc0d370187",
     "Lloyds": "https://lbg.wd3.myworkdayjobs.com/en-US/Lloyds_Technology_Centre?q=DevOps+Engineer",
+    "Deloitte": "https://www.deloitte.com/global/en/careers/job-search.html",
+    "Deloitte US": "https://apply.deloitte.com/en_US/careers/SearchJobs",
+    "Deloitte Ireland": "https://deloitteie.wd3.myworkdayjobs.com/experienced_professionals",
+    "KPMG": "https://kpmg.com/xx/en/careers/job-search.html",
+    "KPMG US": "https://www.kpmguscareers.com/job-search/",
+    "KPMG Global Services": "https://ejgk.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_3",
+    "EY": "https://careers.ey.com/",
+    "EY Global": "https://eyglobal.yello.co/job_boards/c1riT--B2O-KySgYWsZO1Q",
+    "PwC": "https://www.pwc.com/gx/en/careers.html",
+    "PwC Global": "https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers",
+    "PwC US": "https://pwc.wd3.myworkdayjobs.com/US_Experienced_Careers",
     "Google": "https://www.google.com/about/careers",
     "Microsoft": "https://careers.microsoft.com",
     "Amazon (AWS)": "https://www.amazon.jobs",
