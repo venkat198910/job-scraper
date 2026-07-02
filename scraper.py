@@ -982,9 +982,44 @@ def _job_matches_company_career_location(job_details: dict) -> bool:
     keywords = getattr(config, "COMPANY_CAREER_LOCATION_KEYWORDS", [])
     return any(str(keyword).lower() in location for keyword in keywords)
 
+def _parse_company_career_posted_at(value: object) -> datetime | None:
+    normalized = supabase_utils._normalize_supabase_timestamp(value)
+    if not normalized:
+        return None
+
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        logging.warning("Unable to parse normalized company career posted_at value: %r", normalized)
+        return None
+
+def _company_career_posted_recent_enough(job_details: dict) -> bool:
+    posted_at = _parse_company_career_posted_at(job_details.get("posted_at"))
+    if not posted_at:
+        return True
+
+    job_expiry_days = app_settings.get_advanced_int("jobExpiryDays")
+    if job_expiry_days <= 0:
+        return True
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=job_expiry_days)
+    if posted_at < cutoff:
+        logging.info(
+            "Skipping old company career job %s | %s posted_at=%s older than %s days.",
+            job_details.get("company"),
+            job_details.get("job_title"),
+            posted_at.isoformat(),
+            job_expiry_days,
+        )
+        return False
+
+    return True
+
 def _company_career_job_allowed(job_details: dict) -> bool:
     description = job_details.get("description")
     if not description or not description.strip():
+        return False
+    if not _company_career_posted_recent_enough(job_details):
         return False
     if not _job_matches_company_career_keywords(job_details):
         return False

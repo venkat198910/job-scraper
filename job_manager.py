@@ -9,7 +9,7 @@ import logging
 import config
 import app_settings
 import user_agents
-from supabase_utils import supabase # Use the initialized Supabase client
+from supabase_utils import supabase, _normalize_supabase_timestamp # Use the initialized Supabase client
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,6 +23,17 @@ def get_utc_now() -> datetime:
 def get_past_date(days: int) -> datetime:
     """Returns the datetime object for a specific number of days ago in UTC."""
     return get_utc_now() - timedelta(days=days)
+
+def _parse_job_timestamp(value) -> datetime | None:
+    normalized = _normalize_supabase_timestamp(value)
+    if not normalized:
+        return None
+
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        logging.warning("Unable to parse normalized job timestamp: %r", normalized)
+        return None
 
 async def _check_single_linkedin_job_active(job_id: str, client: httpx.AsyncClient) -> bool | None:
     """
@@ -104,30 +115,40 @@ async def mark_expired_jobs():
     logging.info("--- Starting Task: Mark Expired Jobs ---")
     job_expiry_days = app_settings.get_advanced_int("jobExpiryDays")
     expiry_date = get_past_date(job_expiry_days)
-    # Format for Supabase timestampz query
-    expiry_date_str = expiry_date.isoformat()
     excluded_statuses = {'applied', 'offer', 'offered', 'interviewing'} # Statuses that mean "don't expire"
-    logging.info(f"Expiring active jobs scraped before {expiry_date_str} ({job_expiry_days} day threshold).")
+    logging.info(f"Expiring active jobs posted/scraped before {expiry_date.isoformat()} ({job_expiry_days} day threshold).")
 
     try:
-        # Select old active jobs first, then apply the status exclusion in Python.
-        # PostgREST/SQL NOT IN filters can skip NULL statuses, but NULL/new jobs
-        # should still be eligible to expire.
+        # Use posted_at first so old company career postings do not remain active
+        # just because they were scraped recently. Fall back to scraped_at when
+        # the source does not publish a posting date.
         response = supabase.table(config.SUPABASE_TABLE_NAME)\
-            .select("job_id, status")\
-            .lt("scraped_at", expiry_date_str)\
+            .select("job_id, status, posted_at, scraped_at")\
             .eq("is_active", True)\
             .execute()
 
         if response.data:
-            job_ids_to_expire = [
-                job['job_id']
-                for job in response.data
-                if (job.get('status') or '').lower() not in excluded_statuses
-            ]
-            skipped_count = len(response.data) - len(job_ids_to_expire)
-            if skipped_count:
-                logging.info(f"Skipped {skipped_count} old active jobs with protected statuses: {sorted(excluded_statuses)}.")
+            job_ids_to_expire = []
+            protected_count = 0
+            missing_date_count = 0
+
+            for job in response.data:
+                if (job.get('status') or '').lower() in excluded_statuses:
+                    protected_count += 1
+                    continue
+
+                reference_date = _parse_job_timestamp(job.get("posted_at")) or _parse_job_timestamp(job.get("scraped_at"))
+                if not reference_date:
+                    missing_date_count += 1
+                    continue
+
+                if reference_date < expiry_date:
+                    job_ids_to_expire.append(job['job_id'])
+
+            if protected_count:
+                logging.info(f"Skipped {protected_count} active jobs with protected statuses: {sorted(excluded_statuses)}.")
+            if missing_date_count:
+                logging.info(f"Skipped {missing_date_count} active jobs without posted_at or scraped_at timestamps.")
             logging.info(f"Found {len(job_ids_to_expire)} jobs older than {job_expiry_days} days to mark as expired.")
 
             if job_ids_to_expire:
