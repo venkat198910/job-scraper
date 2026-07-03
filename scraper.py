@@ -10,7 +10,9 @@ import user_agents
 import supabase_utils
 from markdownify import markdownify as md
 import json
+import os
 import re
+import tempfile
 from urllib.parse import urlencode, urljoin
 import app_settings
 
@@ -123,6 +125,26 @@ def _is_uae_location(*values: str | None) -> bool:
             "ras al khaimah",
             "fujairah",
             "umm al quwain",
+        )
+    )
+
+def _is_india_location(*values: str | None) -> bool:
+    """Return true when a configured/search/result location is in India."""
+    haystack = " ".join(str(value or "").lower() for value in values)
+    return any(
+        marker in haystack
+        for marker in (
+            "india",
+            "bengaluru",
+            "bangalore",
+            "karnataka",
+            "hyderabad",
+            "pune",
+            "chennai",
+            "mumbai",
+            "noida",
+            "gurugram",
+            "delhi",
         )
     )
 
@@ -955,6 +977,488 @@ def process_careers_future_query(search_query: str, limit: int = None) -> list:
     logging.info(f"--- Finished Phase 4: Successfully fetched details for {processed_count} new job(s) ---")
     return detailed_new_jobs
 
+def _job_key_exists(job_details: dict, job_ids_set: set, company_title_set: set) -> bool:
+    job_id = str(job_details.get("job_id") or "").strip()
+    if job_id and job_id in job_ids_set:
+        return True
+
+    company = str(job_details.get("company") or "").strip().lower()
+    title = str(job_details.get("job_title") or "").strip().lower()
+    return bool(company and title and (company, title) in company_title_set)
+
+def _naukri_headers(referer: str = "https://www.naukri.com/") -> dict:
+    return {
+        "User-Agent": random.choice(user_agents.USER_AGENTS),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": referer,
+        "appid": "109",
+        "systemid": "109",
+        "clientid": "d3skt0p",
+    }
+
+def _naukri_search_url(search_query: str, location: str) -> str:
+    query = {
+        "noOfResults": 20,
+        "urlType": "search_by_keyword",
+        "searchType": "adv",
+        "keyword": search_query,
+        "location": location,
+        "experience": app_settings.get_experience_range()[0],
+        "jobAge": 1,
+        "pageNo": 1,
+    }
+    return "https://www.naukri.com/jobapi/v3/search?" + urlencode(query)
+
+def _naukri_display_url(search_query: str, location: str) -> str:
+    slug_query = re.sub(r"[^a-z0-9]+", "-", search_query.lower()).strip("-")
+    slug_location = re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
+    query = {
+        "k": search_query,
+        "l": location,
+        "experience": app_settings.get_experience_range()[0],
+        "jobAge": 1,
+    }
+    return f"https://www.naukri.com/{slug_query}-jobs-in-{slug_location}?" + urlencode(query)
+
+def _extract_naukri_jobs(payload: dict) -> list[dict]:
+    for key in ("jobDetails", "jobs", "list", "data"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            nested = _extract_naukri_jobs(value)
+            if nested:
+                return nested
+    return []
+
+def _normalize_naukri_job(item: dict, search_url: str) -> dict | None:
+    job_id = (
+        item.get("jobId")
+        or item.get("jobid")
+        or item.get("id")
+        or item.get("job_id")
+    )
+    title = item.get("title") or item.get("jobTitle") or item.get("designation")
+    company_info = item.get("companyInfo") if isinstance(item.get("companyInfo"), dict) else {}
+    company = (
+        item.get("companyName")
+        or item.get("company")
+        or item.get("company_name")
+        or company_info.get("name")
+    )
+    placeholders = item.get("placeholders") if isinstance(item.get("placeholders"), list) else []
+    placeholder_location = placeholders[0].get("label") if placeholders and isinstance(placeholders[0], dict) else ""
+    location = item.get("location") or item.get("loc") or placeholder_location
+    url = item.get("jdURL") or item.get("jobUrl") or item.get("url") or search_url
+    if url and str(url).startswith("/"):
+        url = urljoin("https://www.naukri.com", str(url))
+
+    description = (
+        item.get("jobDescription")
+        or item.get("description")
+        or item.get("snippet")
+        or item.get("tagsAndSkills")
+        or title
+        or ""
+    )
+    posted_at = item.get("createdDate") or item.get("createdDateISO") or item.get("footerPlaceholderLabel")
+
+    if not job_id and url:
+        match = re.search(r"-(\d{8,})$", str(url).rstrip("/"))
+        job_id = match.group(1) if match else re.sub(r"\W+", "-", str(url)).strip("-")[-80:]
+
+    if not job_id or not title:
+        return None
+
+    return {
+        "job_id": f"naukri-{job_id}",
+        "company": _plain_text(company),
+        "job_title": _plain_text(title),
+        "location": _plain_text(location),
+        "level": _plain_text(item.get("experience") or item.get("exp") or ""),
+        "provider": "naukri",
+        "description": _plain_text(description),
+        "posted_at": posted_at,
+        "job_url": url,
+        "apply_url": url,
+        "career_url": search_url,
+    }
+
+def _naukri_storage_state() -> str | dict | None:
+    state_path = os.environ.get("NAUKRI_STORAGE_STATE")
+    if state_path and os.path.exists(state_path):
+        return state_path
+
+    state_json = os.environ.get("NAUKRI_STORAGE_STATE_JSON")
+    if not state_json:
+        return None
+
+    try:
+        return json.loads(state_json)
+    except json.JSONDecodeError:
+        temp_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="naukri_storage_state_",
+            delete=False,
+        )
+        temp_file.write(state_json)
+        temp_file.close()
+        return temp_file.name
+
+def _naukri_browser_headless() -> bool:
+    value = os.environ.get("NAUKRI_BROWSER_HEADLESS", "true").strip().lower()
+    return value not in {"0", "false", "no"}
+
+def _naukri_browser_context_args() -> dict:
+    storage_state = _naukri_storage_state()
+    args = {
+        "viewport": {"width": 1366, "height": 900},
+        "user_agent": random.choice(user_agents.USER_AGENTS),
+        "locale": "en-US",
+        "timezone_id": "Asia/Kolkata",
+    }
+    if storage_state:
+        args["storage_state"] = storage_state
+    return args
+
+def _naukri_card_to_job(card: dict, display_url: str) -> dict | None:
+    url = card.get("url")
+    title = _plain_text(card.get("title"))
+    text = _plain_text(card.get("text"))
+    if not url or not title:
+        return None
+
+    if str(url).startswith("/"):
+        url = urljoin("https://www.naukri.com", str(url))
+
+    job_id_match = re.search(r"(\d{8,})", str(url))
+    job_id = job_id_match.group(1) if job_id_match else re.sub(r"\W+", "-", str(url)).strip("-")[-80:]
+    company = _plain_text(card.get("company"))
+    location = _plain_text(card.get("location"))
+    level = _plain_text(card.get("level"))
+    posted_text = _plain_text(card.get("posted"))
+    lines = [line.strip() for line in re.split(r"\s{2,}|\n+", text) if line.strip()]
+    for line in lines:
+        lowered = line.lower()
+        if not company and line != title and not any(marker in lowered for marker in ("yrs", "years", "lpa", "posted", "save", "apply")):
+            company = line
+        if not location and any(marker in lowered for marker in ("bengaluru", "bangalore", "india", "hyderabad", "pune", "chennai", "mumbai", "noida", "gurugram")):
+            location = line
+        if not level and re.search(r"\b\d{1,2}\s*-\s*\d{1,2}\s*(?:yrs?|years?)\b", lowered):
+            level = line
+
+    posted_at = _parse_linkedin_relative_posted_at(posted_text) if posted_text else None
+
+    return {
+        "job_id": f"naukri-{job_id}",
+        "company": company,
+        "job_title": title,
+        "location": location,
+        "level": level,
+        "provider": "naukri",
+        "description": text or title,
+        "posted_at": posted_at or datetime.now(timezone.utc).isoformat(),
+        "job_url": url,
+        "apply_url": url,
+        "career_url": display_url,
+    }
+
+def _fetch_naukri_jobs_with_browser(search_query: str, location: str, limit: int | None = None) -> list[dict]:
+    display_url = _naukri_display_url(search_query, location)
+    logging.info("Trying Naukri browser-session scrape for %r in %r", search_query, location)
+
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    except Exception as exc:
+        logging.warning("Playwright is unavailable for Naukri browser scrape: %s", exc)
+        return []
+
+    browser = None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=_naukri_browser_headless(),
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            context = browser.new_context(**_naukri_browser_context_args())
+            page = context.new_page()
+            page.goto(display_url, wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except PlaywrightTimeoutError:
+                pass
+
+            body_text = page.locator("body").inner_text(timeout=10000).lower()
+            blocked_markers = (
+                "access denied",
+                "captcha",
+                "recaptcha",
+                "verify",
+                "human verification",
+                "permission to access",
+            )
+            if any(marker in body_text for marker in blocked_markers):
+                logging.warning("Naukri browser scrape was blocked by Naukri/Akamai verification.")
+                return []
+
+            try:
+                page.wait_for_selector("a.title[href*='job-listings'], a[href*='job-listings-']", timeout=15000)
+            except PlaywrightTimeoutError:
+                logging.info("Naukri browser scrape did not see job listing anchors before timeout.")
+
+            cards = page.evaluate(
+                """
+                () => {
+                  const anchors = Array.from(document.querySelectorAll('a[href]'));
+                  const jobAnchors = anchors.filter((anchor) => {
+                    const href = anchor.href || '';
+                    const text = (anchor.innerText || '').trim();
+                    return (
+                      anchor.matches('a.title[href*="job-listings"]') ||
+                      href.includes('job-listings') ||
+                      href.includes('/job-listings-') ||
+                      /\\b(devops|cloud|sre|site reliability|platform|kubernetes|terraform)\\b/i.test(text)
+                    );
+                  });
+
+                  const seen = new Set();
+                  return jobAnchors.map((anchor) => {
+                    const closest = anchor.closest('article, div[class*="srp-jobtuple"], div[class*="jobTuple"], div[class*="tuple"]');
+                    let node = closest || anchor;
+                    if (!closest) {
+                      for (let i = 0; i < 8 && node.parentElement; i += 1) {
+                        const text = node.parentElement.innerText || '';
+                        if (text.length > 120) {
+                          node = node.parentElement;
+                          break;
+                        }
+                        node = node.parentElement;
+                      }
+                    }
+                    const title = (anchor.innerText || anchor.getAttribute('title') || '').trim();
+                    const url = anchor.href;
+                    const text = (node.innerText || title).trim();
+                    const company = (node.querySelector('a.comp-name, .comp-name')?.innerText || '').trim();
+                    const level = (node.querySelector('.expwdth, .exp, [class*="exp"]')?.innerText || '').trim();
+                    const location = (node.querySelector('.locWdth, .loc, [class*="loc"]')?.innerText || '').trim();
+                    const posted = (node.querySelector('.job-post-day, [class*="job-post"], [class*="time"]')?.innerText || '').trim();
+                    const key = `${title}|${url}`;
+                    if (!title || seen.has(key)) return null;
+                    seen.add(key);
+                    return { title, url, text, company, level, location, posted };
+                  }).filter(Boolean).slice(0, 50);
+                }
+                """
+            )
+
+            if limit is not None:
+                cards = cards[:limit]
+
+            jobs = []
+            for card in cards:
+                details = _naukri_card_to_job(card, display_url)
+                if details:
+                    jobs.append(details)
+            logging.info("Naukri browser-session scrape found %s candidate job card(s).", len(jobs))
+            return jobs
+    except Exception as exc:
+        logging.warning("Naukri browser-session scrape failed: %s", exc)
+        return []
+    finally:
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+
+def process_naukri_query(search_query: str, location: str, limit: int | None = None) -> list[dict]:
+    if not _is_india_location(location):
+        logging.info("Skipping Naukri for non-India location: %s", location)
+        return []
+
+    search_url = _naukri_search_url(search_query, location)
+    display_url = _naukri_display_url(search_query, location)
+    logging.info("Fetching Naukri jobs for query=%r location=%r", search_query, location)
+
+    try:
+        response = requests.get(
+            search_url,
+            headers=_naukri_headers(display_url),
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+        )
+        if response.status_code in {403, 406, 429}:
+            logging.warning("Naukri blocked automated search (%s): %s", response.status_code, response.text[:200])
+            raw_jobs = _fetch_naukri_jobs_with_browser(search_query, location, limit=limit)
+            if not raw_jobs:
+                return []
+            try:
+                job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+            except Exception as exc:
+                logging.warning("Could not fetch existing jobs before Naukri browser dedupe: %s", exc)
+                job_ids_set, company_title_set = set(), set()
+
+            return [
+                job
+                for job in raw_jobs
+                if not _job_key_exists(job, job_ids_set, company_title_set)
+                and not _job_matches_excluded_title_keywords(job)
+                and _linkedin_job_matches_experience_range(job)
+            ]
+        response.raise_for_status()
+        payload = response.json()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Naukri search failed for %r in %r: %s", search_query, location, exc)
+        return []
+    except json.JSONDecodeError as exc:
+        logging.warning("Naukri search did not return JSON for %r in %r: %s", search_query, location, exc)
+        return []
+
+    raw_jobs = _extract_naukri_jobs(payload)
+    if limit is not None:
+        raw_jobs = raw_jobs[:limit]
+
+    try:
+        job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+    except Exception as exc:
+        logging.warning("Could not fetch existing jobs before Naukri dedupe: %s", exc)
+        job_ids_set, company_title_set = set(), set()
+
+    jobs = []
+    for item in raw_jobs:
+        if not isinstance(item, dict):
+            continue
+        details = _normalize_naukri_job(item, display_url)
+        if not details:
+            continue
+        if _job_key_exists(details, job_ids_set, company_title_set):
+            continue
+        if _job_matches_excluded_title_keywords(details):
+            continue
+        if not _linkedin_job_matches_experience_range(details):
+            continue
+        jobs.append(details)
+
+    logging.info("Naukri matched %s new job(s) for %r in %r", len(jobs), search_query, location)
+    return jobs
+
+def _naukri_gulf_search_url(search_query: str, location: str) -> str:
+    slug_query = re.sub(r"[^a-z0-9]+", "-", search_query.lower()).strip("-")
+    slug_location = re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
+    query = {
+        "k": search_query,
+        "l": location,
+        "experience": app_settings.get_experience_range()[0],
+        "sort": "date",
+    }
+    return f"https://www.naukrigulf.com/{slug_query}-jobs-in-{slug_location}?" + urlencode(query)
+
+def _fetch_naukri_gulf_detail(url: str) -> dict | None:
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": random.choice(user_agents.USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+        )
+        if response.status_code in {403, 406, 429}:
+            logging.warning("Naukri Gulf blocked detail page (%s): %s", response.status_code, url)
+            return None
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Naukri Gulf detail fetch failed for %s: %s", url, exc)
+        return None
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    title = _plain_text((soup.find("h1") or {}).get_text(" ", strip=True) if soup.find("h1") else "")
+    company = _plain_text((soup.select_one("[class*=company], [class*=employer]") or {}).get_text(" ", strip=True) if soup.select_one("[class*=company], [class*=employer]") else "")
+    location = _plain_text((soup.select_one("[class*=location], [class*=loc]") or {}).get_text(" ", strip=True) if soup.select_one("[class*=location], [class*=loc]") else "")
+    description_node = soup.select_one("[class*=description], [class*=job-desc], [class*=jd]")
+    description = convert_html_to_markdown(str(description_node)) if description_node else title
+    job_id = re.sub(r"\W+", "-", url).strip("-")[-90:]
+
+    if not title:
+        return None
+
+    return {
+        "job_id": f"naukrigulf-{job_id}",
+        "company": company,
+        "job_title": title,
+        "location": location,
+        "level": "",
+        "provider": "naukri_gulf",
+        "description": description,
+        "posted_at": None,
+        "job_url": url,
+        "apply_url": url,
+        "career_url": url,
+    }
+
+def process_naukri_gulf_query(search_query: str, location: str, limit: int | None = None) -> list[dict]:
+    if not _is_uae_location(location):
+        logging.info("Skipping Naukri Gulf for non-UAE location: %s", location)
+        return []
+
+    search_url = _naukri_gulf_search_url(search_query, location)
+    logging.info("Fetching Naukri Gulf jobs for query=%r location=%r", search_query, location)
+
+    try:
+        response = requests.get(
+            search_url,
+            headers={
+                "User-Agent": random.choice(user_agents.USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+        )
+        if response.status_code in {403, 406, 429}:
+            logging.warning("Naukri Gulf blocked automated search (%s): %s", response.status_code, search_url)
+            return []
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Naukri Gulf search failed for %r in %r: %s", search_query, location, exc)
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    links = []
+    for anchor in soup.select("a[href]"):
+        href = anchor.get("href") or ""
+        if "job-listings" not in href and "/jobs/" not in href:
+            continue
+        absolute_url = urljoin("https://www.naukrigulf.com", href)
+        if absolute_url not in links:
+            links.append(absolute_url)
+
+    if limit is not None:
+        links = links[:limit]
+
+    try:
+        job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+    except Exception as exc:
+        logging.warning("Could not fetch existing jobs before Naukri Gulf dedupe: %s", exc)
+        job_ids_set, company_title_set = set(), set()
+
+    jobs = []
+    for link in links:
+        details = _fetch_naukri_gulf_detail(link)
+        if not details:
+            continue
+        if _job_key_exists(details, job_ids_set, company_title_set):
+            continue
+        if _job_matches_excluded_title_keywords(details):
+            continue
+        if not _linkedin_job_matches_experience_range(details):
+            continue
+        jobs.append(details)
+
+    logging.info("Naukri Gulf matched %s new job(s) for %r in %r", len(jobs), search_query, location)
+    return jobs
+
 def _plain_text(value: object) -> str:
     if value is None:
         return ""
@@ -1675,6 +2179,42 @@ if __name__ == "__main__":
                 logging.info(f"\nNo new job details were fetched or processed for query '{query}'.")
     else:
         logging.info("\n--- Skipping Careers Future Job Scraping per config ---")
+
+    # Get jobs from Naukri India.
+    if "naukri" in scraping_sources:
+        logging.info("\n--- Starting Naukri Job Scraping ---")
+        max_jobs_per_search = app_settings.get_advanced_int("maxNaukriJobsPerSearch")
+        for query in app_settings.get_linkedin_search_queries():
+            for location in app_settings.get_linkedin_locations():
+                new_naukri_jobs = process_naukri_query(query, location, limit=max_jobs_per_search)
+
+                if new_naukri_jobs:
+                    logging.info("\n--- Saving %s new Naukri job(s) for query %r in %r ---", len(new_naukri_jobs), query, location)
+                    supabase_utils.save_jobs_to_supabase(new_naukri_jobs)
+                    total_new_jobs_saved += len(new_naukri_jobs)
+                    alert_jobs.extend(new_naukri_jobs)
+                else:
+                    logging.info("\nNo new Naukri jobs were fetched or processed for query %r in %r.", query, location)
+    else:
+        logging.info("\n--- Skipping Naukri Job Scraping per config ---")
+
+    # Get jobs from Naukri Gulf.
+    if "naukri_gulf" in scraping_sources:
+        logging.info("\n--- Starting Naukri Gulf Job Scraping ---")
+        max_jobs_per_search = app_settings.get_advanced_int("maxNaukriGulfJobsPerSearch")
+        for query in app_settings.get_linkedin_search_queries():
+            for location in app_settings.get_linkedin_locations():
+                new_naukri_gulf_jobs = process_naukri_gulf_query(query, location, limit=max_jobs_per_search)
+
+                if new_naukri_gulf_jobs:
+                    logging.info("\n--- Saving %s new Naukri Gulf job(s) for query %r in %r ---", len(new_naukri_gulf_jobs), query, location)
+                    supabase_utils.save_jobs_to_supabase(new_naukri_gulf_jobs)
+                    total_new_jobs_saved += len(new_naukri_gulf_jobs)
+                    alert_jobs.extend(new_naukri_gulf_jobs)
+                else:
+                    logging.info("\nNo new Naukri Gulf jobs were fetched or processed for query %r in %r.", query, location)
+    else:
+        logging.info("\n--- Skipping Naukri Gulf Job Scraping per config ---")
 
     # Get jobs from configured company career pages / ATS APIs.
     if "company_careers" in scraping_sources:

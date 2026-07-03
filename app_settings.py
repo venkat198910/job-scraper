@@ -123,6 +123,8 @@ DEFAULT_SETTINGS = {
         "maxLinkedinJobsPerSearch": getattr(config, "MAX_JOBS_PER_SEARCH", {}).get("linkedin", 20),
         "maxCareersFutureJobsPerSearch": getattr(config, "MAX_JOBS_PER_SEARCH", {}).get("careers_future", 10),
         "maxCompanyCareerJobsPerRun": getattr(config, "MAX_JOBS_PER_SEARCH", {}).get("company_careers", 300),
+        "maxNaukriJobsPerSearch": getattr(config, "MAX_JOBS_PER_SEARCH", {}).get("naukri", 10),
+        "maxNaukriGulfJobsPerSearch": getattr(config, "MAX_JOBS_PER_SEARCH", {}).get("naukri_gulf", 10),
         "linkedinMaxStart": getattr(config, "LINKEDIN_MAX_START", 1),
         "requestTimeout": getattr(config, "REQUEST_TIMEOUT", 30),
         "maxRetries": getattr(config, "MAX_RETRIES", 3),
@@ -139,6 +141,8 @@ DEFAULT_SETTINGS = {
         "linkedin": "linkedin" in getattr(config, "SCRAPING_SOURCES", []),
         "careersFuture": "careers_future" in getattr(config, "SCRAPING_SOURCES", []),
         "companyCareers": "company_careers" in getattr(config, "SCRAPING_SOURCES", []),
+        "naukri": "naukri" in getattr(config, "SCRAPING_SOURCES", []),
+        "naukriGulf": "naukri_gulf" in getattr(config, "SCRAPING_SOURCES", []),
         "remote": True,
         "hybrid": True,
         "onsite": False,
@@ -303,6 +307,8 @@ def normalize_settings(value: Any) -> dict[str, Any]:
             "maxLinkedinJobsPerSearch": _bounded_int(incoming_advanced.get("maxLinkedinJobsPerSearch"), defaults["advanced"]["maxLinkedinJobsPerSearch"], 1, 1000),
             "maxCareersFutureJobsPerSearch": _bounded_int(incoming_advanced.get("maxCareersFutureJobsPerSearch"), defaults["advanced"]["maxCareersFutureJobsPerSearch"], 1, 1000),
             "maxCompanyCareerJobsPerRun": _bounded_int(incoming_advanced.get("maxCompanyCareerJobsPerRun"), defaults["advanced"]["maxCompanyCareerJobsPerRun"], 1, 1000),
+            "maxNaukriJobsPerSearch": _bounded_int(incoming_advanced.get("maxNaukriJobsPerSearch"), defaults["advanced"]["maxNaukriJobsPerSearch"], 1, 1000),
+            "maxNaukriGulfJobsPerSearch": _bounded_int(incoming_advanced.get("maxNaukriGulfJobsPerSearch"), defaults["advanced"]["maxNaukriGulfJobsPerSearch"], 1, 1000),
             "linkedinMaxStart": _bounded_int(incoming_advanced.get("linkedinMaxStart"), defaults["advanced"]["linkedinMaxStart"], 0, 1000),
             "requestTimeout": _bounded_int(incoming_advanced.get("requestTimeout"), defaults["advanced"]["requestTimeout"], 5, 300),
             "maxRetries": _bounded_int(incoming_advanced.get("maxRetries"), defaults["advanced"]["maxRetries"], 0, 10),
@@ -378,6 +384,10 @@ def get_enabled_scraping_sources() -> list[str]:
         sources.append("careers_future")
     if toggles.get("companyCareers"):
         sources.append("company_careers")
+    if toggles.get("naukri"):
+        sources.append("naukri")
+    if toggles.get("naukriGulf"):
+        sources.append("naukri_gulf")
     return sources
 
 

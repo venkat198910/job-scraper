@@ -603,6 +603,8 @@ SCRAPING_SOURCES = [
     "linkedin",
     "company_careers",
     # "careers_future"
+    # "naukri",
+    # "naukri_gulf",
 ]
 
 JOBS_TO_SCORE_PER_RUN = 10
@@ -616,6 +618,8 @@ MAX_JOBS_PER_SEARCH = {
     "linkedin": 20,
     "careers_future": 10,
     "company_careers": 300,
+    "naukri": 10,
+    "naukri_gulf": 10,
 }
 
 # =================================================================
