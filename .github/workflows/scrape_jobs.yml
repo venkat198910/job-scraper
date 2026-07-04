@@ -33,6 +33,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NAUKRI_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_STORAGE_STATE_JSON }}
+          NAUKRI_GULF_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_GULF_STORAGE_STATE_JSON }}
           NAUKRI_BROWSER_HEADLESS: "false"
         run: |
           if command -v xvfb-run >/dev/null 2>&1; then

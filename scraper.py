@@ -235,7 +235,7 @@ def _get_careers_future_job_company_name(job_item: dict) -> str | None:
 
 # --- LinkedIn Scraping Logic ---
 def _parse_linkedin_relative_posted_at(text: str, now: datetime | None = None) -> str | None:
-    """Convert LinkedIn card text such as '4 hours ago' into a UTC timestamp."""
+    """Convert relative posted text such as '4 hours ago' into a UTC timestamp."""
     if not text:
         return None
 
@@ -244,7 +244,7 @@ def _parse_linkedin_relative_posted_at(text: str, now: datetime | None = None) -
         return (now or datetime.now(timezone.utc)).isoformat()
 
     match = re.search(
-        r"\b(\d+)\s+(minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks|month|months)\s+ago\b",
+        r"\b(\d+)\+?\s*(minute|minutes|min|mins|m|hour|hours|hr|hrs|h|day|days|d|week|weeks|w|month|months)\s+ago\b",
         normalized,
     )
     if not match:
@@ -252,13 +252,13 @@ def _parse_linkedin_relative_posted_at(text: str, now: datetime | None = None) -
 
     amount = int(match.group(1))
     unit = match.group(2)
-    if unit in {"minute", "minutes", "min", "mins"}:
+    if unit in {"minute", "minutes", "min", "mins", "m"}:
         delta = timedelta(minutes=amount)
-    elif unit in {"hour", "hours", "hr", "hrs"}:
+    elif unit in {"hour", "hours", "hr", "hrs", "h"}:
         delta = timedelta(hours=amount)
-    elif unit in {"day", "days"}:
+    elif unit in {"day", "days", "d"}:
         delta = timedelta(days=amount)
-    elif unit in {"week", "weeks"}:
+    elif unit in {"week", "weeks", "w"}:
         delta = timedelta(weeks=amount)
     else:
         delta = timedelta(days=amount * 30)
@@ -1062,7 +1062,8 @@ def _normalize_naukri_job(item: dict, search_url: str) -> dict | None:
         or title
         or ""
     )
-    posted_at = item.get("createdDate") or item.get("createdDateISO") or item.get("footerPlaceholderLabel")
+    raw_posted_at = item.get("createdDate") or item.get("createdDateISO") or item.get("footerPlaceholderLabel")
+    posted_at = _parse_linkedin_relative_posted_at(str(raw_posted_at or "")) or raw_posted_at
 
     if not job_id and url:
         match = re.search(r"-(\d{8,})$", str(url).rstrip("/"))
@@ -1149,7 +1150,10 @@ def _naukri_card_to_job(card: dict, display_url: str) -> dict | None:
         if not level and re.search(r"\b\d{1,2}\s*-\s*\d{1,2}\s*(?:yrs?|years?)\b", lowered):
             level = line
 
-    posted_at = _parse_linkedin_relative_posted_at(posted_text) if posted_text else None
+    posted_at = (
+        _parse_linkedin_relative_posted_at(posted_text)
+        or _parse_linkedin_relative_posted_at(text)
+    )
 
     return {
         "job_id": f"naukri-{job_id}",
@@ -1159,7 +1163,7 @@ def _naukri_card_to_job(card: dict, display_url: str) -> dict | None:
         "level": level,
         "provider": "naukri",
         "description": text or title,
-        "posted_at": posted_at or datetime.now(timezone.utc).isoformat(),
+        "posted_at": posted_at,
         "job_url": url,
         "apply_url": url,
         "career_url": display_url,
@@ -1345,14 +1349,59 @@ def process_naukri_query(search_query: str, location: str, limit: int | None = N
 
 def _naukri_gulf_search_url(search_query: str, location: str) -> str:
     slug_query = re.sub(r"[^a-z0-9]+", "-", search_query.lower()).strip("-")
-    slug_location = re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
+    location_lower = location.lower()
+    if "abu dhabi" in location_lower:
+        slug_location = "abu-dhabi"
+    elif "sharjah" in location_lower:
+        slug_location = "sharjah"
+    elif "dubai" in location_lower:
+        slug_location = "dubai"
+    elif "uae" in location_lower or "united arab emirates" in location_lower:
+        slug_location = "uae"
+    else:
+        slug_location = re.sub(r"[^a-z0-9]+", "-", location_lower).strip("-")
     query = {
         "k": search_query,
-        "l": location,
+        "l": slug_location.replace("-", " ").title(),
         "experience": app_settings.get_experience_range()[0],
         "sort": "date",
     }
     return f"https://www.naukrigulf.com/{slug_query}-jobs-in-{slug_location}?" + urlencode(query)
+
+def _naukri_gulf_storage_state() -> str | dict | None:
+    state_path = os.environ.get("NAUKRI_GULF_STORAGE_STATE")
+    if state_path and os.path.exists(state_path):
+        return state_path
+
+    state_json = os.environ.get("NAUKRI_GULF_STORAGE_STATE_JSON")
+    if not state_json:
+        return _naukri_storage_state()
+
+    try:
+        return json.loads(state_json)
+    except json.JSONDecodeError:
+        temp_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="naukri_gulf_storage_state_",
+            delete=False,
+        )
+        temp_file.write(state_json)
+        temp_file.close()
+        return temp_file.name
+
+def _naukri_gulf_browser_context_args() -> dict:
+    args = _naukri_browser_context_args()
+    storage_state = _naukri_gulf_storage_state()
+    if storage_state:
+        args["storage_state"] = storage_state
+    return args
+
+def _naukri_gulf_search_urls(search_query: str, location: str) -> list[str]:
+    primary_url = _naukri_gulf_search_url(search_query, location)
+    # Naukri Gulf often throws HTTP2 errors or "Oops" on alternate routes.
+    # Keep this best-effort and fast instead of burning minutes per pipeline run.
+    return [primary_url]
 
 def _fetch_naukri_gulf_detail(url: str) -> dict | None:
     try:
@@ -1398,6 +1447,171 @@ def _fetch_naukri_gulf_detail(url: str) -> dict | None:
         "career_url": url,
     }
 
+def _naukri_gulf_card_to_job(card: dict, search_url: str) -> dict | None:
+    url = card.get("url")
+    title = _plain_text(card.get("title"))
+    text = _plain_text(card.get("text"))
+    if not url or not title:
+        return None
+
+    if str(url).startswith("/"):
+        url = urljoin("https://www.naukrigulf.com", str(url))
+
+    job_id_match = re.search(r"(\d{6,})", str(url))
+    job_id = job_id_match.group(1) if job_id_match else re.sub(r"\W+", "-", str(url)).strip("-")[-90:]
+    company = _plain_text(card.get("company"))
+    location = _plain_text(card.get("location"))
+    level = _plain_text(card.get("level"))
+    posted_text = _plain_text(card.get("posted"))
+
+    lines = [line.strip() for line in re.split(r"\s{2,}|\n+", text) if line.strip()]
+    for line in lines:
+        lowered = line.lower()
+        if not company and line != title and not any(marker in lowered for marker in ("yrs", "years", "posted", "apply", "save")):
+            company = line
+        if not location and any(marker in lowered for marker in ("dubai", "abu dhabi", "sharjah", "uae", "united arab emirates")):
+            location = line
+        if not level and re.search(r"\b\d{1,2}\s*[-+]\s*\d{0,2}\s*(?:yrs?|years?)\b", lowered):
+            level = line
+
+    posted_at = _parse_linkedin_relative_posted_at(posted_text) if posted_text else None
+
+    return {
+        "job_id": f"naukrigulf-{job_id}",
+        "company": company,
+        "job_title": title,
+        "location": location,
+        "level": level,
+        "provider": "naukri_gulf",
+        "description": text or title,
+        "posted_at": posted_at or datetime.now(timezone.utc).isoformat(),
+        "job_url": url,
+        "apply_url": url,
+        "career_url": search_url,
+    }
+
+def _fetch_naukri_gulf_jobs_with_browser(search_query: str, location: str, limit: int | None = None) -> list[dict]:
+    search_urls = _naukri_gulf_search_urls(search_query, location)
+    search_url = search_urls[0]
+    logging.info("Trying Naukri Gulf browser-session scrape for %r in %r", search_query, location)
+
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    except Exception as exc:
+        logging.warning("Playwright is unavailable for Naukri Gulf browser scrape: %s", exc)
+        return []
+
+    browser = None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=_naukri_browser_headless(),
+                args=["--disable-blink-features=AutomationControlled", "--disable-http2"],
+            )
+            context = browser.new_context(**_naukri_gulf_browser_context_args())
+            page = context.new_page()
+            active_url = None
+            for candidate_url in search_urls:
+                try:
+                    page.goto(candidate_url, wait_until="domcontentloaded", timeout=20000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                    except PlaywrightTimeoutError:
+                        pass
+
+                    body_text = page.locator("body").inner_text(timeout=5000).lower()
+                    blocked_markers = (
+                        "access denied",
+                        "captcha",
+                        "recaptcha",
+                        "verify",
+                        "human verification",
+                        "permission to access",
+                    )
+                    if any(marker in body_text for marker in blocked_markers):
+                        logging.warning("Naukri Gulf browser scrape was blocked by verification.")
+                        return []
+                    if "oops! something went wrong" in body_text:
+                        logging.info("Naukri Gulf returned no results/oops page for %s", candidate_url)
+                        continue
+                    active_url = candidate_url
+                    break
+                except Exception as nav_exc:
+                    logging.info("Naukri Gulf navigation failed for %s: %s", candidate_url, nav_exc)
+
+            if not active_url:
+                return []
+            search_url = active_url
+
+            try:
+                page.wait_for_selector("a[href*='job-listings'], a[href*='/jobs/']", timeout=5000)
+            except PlaywrightTimeoutError:
+                logging.info("Naukri Gulf browser scrape did not see job listing anchors before timeout.")
+
+            cards = page.evaluate(
+                """
+                () => {
+                  const anchors = Array.from(document.querySelectorAll('a[href]'));
+                  const jobAnchors = anchors.filter((anchor) => {
+                    const href = anchor.href || '';
+                    const text = (anchor.innerText || anchor.getAttribute('title') || '').trim();
+                    return (
+                      href.includes('job-listings') ||
+                      href.includes('/jobs/') ||
+                      /\\b(devops|cloud|sre|site reliability|platform|kubernetes|terraform)\\b/i.test(text)
+                    );
+                  });
+
+                  const seen = new Set();
+                  return jobAnchors.map((anchor) => {
+                    const closest = anchor.closest('article, div[class*="job"], div[class*="tuple"], div[class*="card"], li');
+                    let node = closest || anchor;
+                    if (!closest) {
+                      for (let i = 0; i < 8 && node.parentElement; i += 1) {
+                        const text = node.parentElement.innerText || '';
+                        if (text.length > 120) {
+                          node = node.parentElement;
+                          break;
+                        }
+                        node = node.parentElement;
+                      }
+                    }
+                    const title = (anchor.innerText || anchor.getAttribute('title') || '').trim();
+                    const url = anchor.href;
+                    const text = (node.innerText || title).trim();
+                    const company = (node.querySelector('[class*="company"], [class*="employer"], [class*="org"]')?.innerText || '').trim();
+                    const level = (node.querySelector('[class*="exp"], [class*="experience"]')?.innerText || '').trim();
+                    const location = (node.querySelector('[class*="loc"], [class*="location"]')?.innerText || '').trim();
+                    const posted = (node.querySelector('[class*="date"], [class*="posted"], [class*="time"]')?.innerText || '').trim();
+                    const key = `${title}|${url}`;
+                    if (!title || seen.has(key)) return null;
+                    seen.add(key);
+                    return { title, url, text, company, level, location, posted };
+                  }).filter(Boolean).slice(0, 50);
+                }
+                """
+            )
+
+            if limit is not None:
+                cards = cards[:limit]
+
+            jobs = []
+            for card in cards:
+                details = _naukri_gulf_card_to_job(card, search_url)
+                if details:
+                    jobs.append(details)
+            logging.info("Naukri Gulf browser-session scrape found %s candidate job card(s).", len(jobs))
+            return jobs
+    except Exception as exc:
+        logging.warning("Naukri Gulf browser-session scrape failed: %s", exc)
+        return []
+    finally:
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+
 def process_naukri_gulf_query(search_query: str, location: str, limit: int | None = None) -> list[dict]:
     if not _is_uae_location(location):
         logging.info("Skipping Naukri Gulf for non-UAE location: %s", location)
@@ -1405,6 +1619,7 @@ def process_naukri_gulf_query(search_query: str, location: str, limit: int | Non
 
     search_url = _naukri_gulf_search_url(search_query, location)
     logging.info("Fetching Naukri Gulf jobs for query=%r location=%r", search_query, location)
+    request_timeout = min(app_settings.get_advanced_int("requestTimeout"), 10)
 
     try:
         response = requests.get(
@@ -1414,15 +1629,45 @@ def process_naukri_gulf_query(search_query: str, location: str, limit: int | Non
                 "Accept": "text/html,application/xhtml+xml",
                 "Accept-Language": "en-US,en;q=0.9",
             },
-            timeout=app_settings.get_advanced_int("requestTimeout"),
+            timeout=request_timeout,
         )
         if response.status_code in {403, 406, 429}:
             logging.warning("Naukri Gulf blocked automated search (%s): %s", response.status_code, search_url)
-            return []
+            raw_jobs = _fetch_naukri_gulf_jobs_with_browser(search_query, location, limit=limit)
+            if not raw_jobs:
+                return []
+            try:
+                job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+            except Exception as exc:
+                logging.warning("Could not fetch existing jobs before Naukri Gulf browser dedupe: %s", exc)
+                job_ids_set, company_title_set = set(), set()
+
+            return [
+                job
+                for job in raw_jobs
+                if not _job_key_exists(job, job_ids_set, company_title_set)
+                and not _job_matches_excluded_title_keywords(job)
+                and _linkedin_job_matches_experience_range(job)
+            ]
         response.raise_for_status()
     except requests.exceptions.RequestException as exc:
         logging.warning("Naukri Gulf search failed for %r in %r: %s", search_query, location, exc)
-        return []
+        raw_jobs = _fetch_naukri_gulf_jobs_with_browser(search_query, location, limit=limit)
+        if not raw_jobs:
+            return []
+        try:
+            job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+        except Exception as dedupe_exc:
+            logging.warning("Could not fetch existing jobs before Naukri Gulf browser dedupe: %s", dedupe_exc)
+            job_ids_set, company_title_set = set(), set()
+
+        return [
+            job
+            for job in raw_jobs
+            if not _job_key_exists(job, job_ids_set, company_title_set)
+            and not _job_matches_excluded_title_keywords(job)
+            and _linkedin_job_matches_experience_range(job)
+        ]
 
     soup = BeautifulSoup(response.text, "html.parser")
     links = []
