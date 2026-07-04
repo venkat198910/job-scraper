@@ -2,9 +2,9 @@ name: Job Pipeline
 
 on:
   schedule:
-  # GitHub cron is UTC. Runs hourly, then waits 10 minutes between
-  # discovery, scoring, resume customization, and application attempts.
-  - cron: '0 */2 * * *'
+  # GitHub cron is UTC. Run every 2 hours, offset from :00 to reduce
+  # GitHub Actions scheduler delays during top-of-hour traffic.
+  - cron: '5 */2 * * *'
   workflow_dispatch:
 
 
@@ -20,36 +20,36 @@ jobs:
       max-parallel: 10
       matrix:
         include:
-          - source: linkedin
-            chunk_index: 0
-            chunk_total: 6
-          - source: linkedin
-            chunk_index: 1
-            chunk_total: 6
-          - source: linkedin
-            chunk_index: 2
-            chunk_total: 6
-          - source: linkedin
-            chunk_index: 3
-            chunk_total: 6
-          - source: linkedin
-            chunk_index: 4
-            chunk_total: 6
-          - source: linkedin
-            chunk_index: 5
-            chunk_total: 6
-          - source: careers_future
-            chunk_index: 0
-            chunk_total: 1
-          - source: company_careers
-            chunk_index: 0
-            chunk_total: 1
-          - source: naukri
-            chunk_index: 0
-            chunk_total: 1
-          - source: naukri_gulf
-            chunk_index: 0
-            chunk_total: 1
+        - source: linkedin
+          chunk_index: 0
+          chunk_total: 6
+        - source: linkedin
+          chunk_index: 1
+          chunk_total: 6
+        - source: linkedin
+          chunk_index: 2
+          chunk_total: 6
+        - source: linkedin
+          chunk_index: 3
+          chunk_total: 6
+        - source: linkedin
+          chunk_index: 4
+          chunk_total: 6
+        - source: linkedin
+          chunk_index: 5
+          chunk_total: 6
+        - source: careers_future
+          chunk_index: 0
+          chunk_total: 1
+        - source: company_careers
+          chunk_index: 0
+          chunk_total: 1
+        - source: naukri
+          chunk_index: 0
+          chunk_total: 1
+        - source: naukri_gulf
+          chunk_index: 0
+          chunk_total: 1
     name: Scrape ${{ matrix.source }} chunk ${{ matrix.chunk_index }}
 
     env:
