@@ -266,6 +266,52 @@ def _parse_linkedin_relative_posted_at(text: str, now: datetime | None = None) -
     return ((now or datetime.now(timezone.utc)) - delta).isoformat()
 
 
+def _posting_date_filter_delta() -> timedelta:
+    """Return the configured posting-date freshness window."""
+    value = str(app_settings.get_linkedin_posting_date_filter() or "r86400").strip().lower()
+    if value.startswith("r") and value[1:].isdigit():
+        return timedelta(seconds=int(value[1:]))
+    return timedelta(days=1)
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _naukri_job_is_fresh(job: dict, now: datetime | None = None) -> bool:
+    """Keep only Naukri jobs inside the configured posting-date window."""
+    posted_at = _parse_iso_datetime(job.get("posted_at"))
+    if not posted_at:
+        logging.info(
+            "Skipping Naukri job without parseable posted_at: %s | %s",
+            job.get("job_id"),
+            job.get("job_title"),
+        )
+        return False
+
+    reference_time = now or datetime.now(timezone.utc)
+    max_age = _posting_date_filter_delta()
+    age = reference_time - posted_at
+    if age > max_age:
+        logging.info(
+            "Skipping stale Naukri job %s (%s): age=%s max_age=%s",
+            job.get("job_id"),
+            job.get("job_title"),
+            age,
+            max_age,
+        )
+        return False
+    return True
+
+
 def _extract_linkedin_card_posted_at(job_element) -> str | None:
     for time_tag in job_element.find_all("time"):
         text_posted_at = _parse_linkedin_relative_posted_at(time_tag.get_text(" ", strip=True))
@@ -1309,6 +1355,7 @@ def process_naukri_query(search_query: str, location: str, limit: int | None = N
                 if not _job_key_exists(job, job_ids_set, company_title_set)
                 and not _job_matches_excluded_title_keywords(job)
                 and _linkedin_job_matches_experience_range(job)
+                and _naukri_job_is_fresh(job)
             ]
         response.raise_for_status()
         payload = response.json()
@@ -1341,6 +1388,8 @@ def process_naukri_query(search_query: str, location: str, limit: int | None = N
         if _job_matches_excluded_title_keywords(details):
             continue
         if not _linkedin_job_matches_experience_range(details):
+            continue
+        if not _naukri_job_is_fresh(details):
             continue
         jobs.append(details)
 
@@ -2400,26 +2449,57 @@ if __name__ == "__main__":
     if requested_sources:
         logging.info("This runner is scoped to scraping source(s): %s", ", ".join(requested_sources))
 
+    scrape_chunk_index = int(os.environ.get("SCRAPING_CHUNK_INDEX", "0") or 0)
+    scrape_chunk_total = max(1, int(os.environ.get("SCRAPING_CHUNK_TOTAL", "1") or 1))
+    if scrape_chunk_index < 0 or scrape_chunk_index >= scrape_chunk_total:
+        raise ValueError(
+            f"SCRAPING_CHUNK_INDEX must be between 0 and {scrape_chunk_total - 1}; "
+            f"got {scrape_chunk_index}"
+        )
+    if scrape_chunk_total > 1:
+        logging.info(
+            "This runner is processing scrape chunk %s of %s",
+            scrape_chunk_index + 1,
+            scrape_chunk_total,
+        )
+
     # Get jobs from LinkedIn
     if "linkedin" in scraping_sources:
         logging.info("\n--- Starting LinkedIn Job Scraping ---")
         max_jobs_per_search = app_settings.get_advanced_int("maxLinkedinJobsPerSearch")
         linkedin_locations = app_settings.get_linkedin_locations()
-        for query in app_settings.get_linkedin_search_queries():
-            for location in linkedin_locations:
-                print(f"\n{'='*20} Processing Search Query: '{query}' in '{location}' {'='*20}")
+        linkedin_tasks = [
+            (query, location)
+            for query in app_settings.get_linkedin_search_queries()
+            for location in linkedin_locations
+        ]
+        if scrape_chunk_total > 1:
+            linkedin_tasks = [
+                task
+                for task_index, task in enumerate(linkedin_tasks)
+                if task_index % scrape_chunk_total == scrape_chunk_index
+            ]
+            logging.info(
+                "LinkedIn chunk %s/%s will process %s query/location combination(s).",
+                scrape_chunk_index + 1,
+                scrape_chunk_total,
+                len(linkedin_tasks),
+            )
 
-                # 1. Process the query: Scrape IDs, filter, fetch new details
-                new_linkedin_job_details = process_linkedin_query(query, location, limit=max_jobs_per_search)
+        for query, location in linkedin_tasks:
+            print(f"\n{'='*20} Processing Search Query: '{query}' in '{location}' {'='*20}")
 
-                # 2. Save the NEW scraped data to Supabase
-                if new_linkedin_job_details:
-                    print(f"\n--- Saving {len(new_linkedin_job_details)} new job(s) for query '{query}' in '{location}' ---")
-                    supabase_utils.save_jobs_to_supabase(new_linkedin_job_details)
-                    total_new_jobs_saved += len(new_linkedin_job_details)
-                    alert_jobs.extend(new_linkedin_job_details)
-                else:
-                    print(f"\nNo new job details were fetched or processed for query '{query}' in '{location}'.")
+            # 1. Process the query: Scrape IDs, filter, fetch new details
+            new_linkedin_job_details = process_linkedin_query(query, location, limit=max_jobs_per_search)
+
+            # 2. Save the NEW scraped data to Supabase
+            if new_linkedin_job_details:
+                print(f"\n--- Saving {len(new_linkedin_job_details)} new job(s) for query '{query}' in '{location}' ---")
+                supabase_utils.save_jobs_to_supabase(new_linkedin_job_details)
+                total_new_jobs_saved += len(new_linkedin_job_details)
+                alert_jobs.extend(new_linkedin_job_details)
+            else:
+                print(f"\nNo new job details were fetched or processed for query '{query}' in '{location}'.")
     else:
         logging.info("\n--- Skipping LinkedIn Job Scraping per config ---")
 

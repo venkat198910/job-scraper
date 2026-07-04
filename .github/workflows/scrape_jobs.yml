@@ -14,15 +14,40 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 10
       matrix:
-        source:
-          - linkedin
-          - careers_future
-          - company_careers
-          - naukri
-          - naukri_gulf
-    name: Scrape ${{ matrix.source }}
+        include:
+          - source: linkedin
+            chunk_index: 0
+            chunk_total: 6
+          - source: linkedin
+            chunk_index: 1
+            chunk_total: 6
+          - source: linkedin
+            chunk_index: 2
+            chunk_total: 6
+          - source: linkedin
+            chunk_index: 3
+            chunk_total: 6
+          - source: linkedin
+            chunk_index: 4
+            chunk_total: 6
+          - source: linkedin
+            chunk_index: 5
+            chunk_total: 6
+          - source: careers_future
+            chunk_index: 0
+            chunk_total: 1
+          - source: company_careers
+            chunk_index: 0
+            chunk_total: 1
+          - source: naukri
+            chunk_index: 0
+            chunk_total: 1
+          - source: naukri_gulf
+            chunk_index: 0
+            chunk_total: 1
+    name: Scrape ${{ matrix.source }} chunk ${{ matrix.chunk_index }}
 
     steps:
       - name: Checkout repository code
@@ -49,6 +74,8 @@ jobs:
           NAUKRI_GULF_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_GULF_STORAGE_STATE_JSON }}
           NAUKRI_BROWSER_HEADLESS: "false"
           SCRAPING_SOURCE: ${{ matrix.source }}
+          SCRAPING_CHUNK_INDEX: ${{ matrix.chunk_index }}
+          SCRAPING_CHUNK_TOTAL: ${{ matrix.chunk_total }}
         run: |
           if { [ "${{ matrix.source }}" = "naukri" ] || [ "${{ matrix.source }}" = "naukri_gulf" ]; } && command -v xvfb-run >/dev/null 2>&1; then
             xvfb-run -a python scraper.py
