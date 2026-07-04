@@ -12,6 +12,17 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        source:
+          - linkedin
+          - careers_future
+          - company_careers
+          - naukri
+          - naukri_gulf
+    name: Scrape ${{ matrix.source }}
 
     steps:
       - name: Checkout repository code
@@ -26,7 +37,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+          if [ "${{ matrix.source }}" = "naukri" ] || [ "${{ matrix.source }}" = "naukri_gulf" ]; then
+            python -m playwright install --with-deps chromium
+          fi
 
       - name: Run scraper script
         env:
@@ -35,8 +48,9 @@ jobs:
           NAUKRI_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_STORAGE_STATE_JSON }}
           NAUKRI_GULF_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_GULF_STORAGE_STATE_JSON }}
           NAUKRI_BROWSER_HEADLESS: "false"
+          SCRAPING_SOURCE: ${{ matrix.source }}
         run: |
-          if command -v xvfb-run >/dev/null 2>&1; then
+          if { [ "${{ matrix.source }}" = "naukri" ] || [ "${{ matrix.source }}" = "naukri_gulf" ]; } && command -v xvfb-run >/dev/null 2>&1; then
             xvfb-run -a python scraper.py
           else
             python scraper.py

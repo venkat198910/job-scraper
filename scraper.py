@@ -2379,7 +2379,26 @@ if __name__ == "__main__":
     alert_jobs = []
 
     scraping_sources = app_settings.get_enabled_scraping_sources()
+    requested_sources = [
+        source.strip()
+        for source in os.environ.get("SCRAPING_SOURCES", os.environ.get("SCRAPING_SOURCE", "")).split(",")
+        if source.strip()
+    ]
+    if requested_sources:
+        unknown_sources = sorted(set(requested_sources) - {
+            "linkedin",
+            "careers_future",
+            "company_careers",
+            "naukri",
+            "naukri_gulf",
+        })
+        if unknown_sources:
+            raise ValueError(f"Unknown SCRAPING_SOURCE value(s): {', '.join(unknown_sources)}")
+        scraping_sources = [source for source in scraping_sources if source in requested_sources]
+
     logging.info("Enabled scraping sources: %s", ", ".join(scraping_sources) or "none")
+    if requested_sources:
+        logging.info("This runner is scoped to scraping source(s): %s", ", ".join(requested_sources))
 
     # Get jobs from LinkedIn
     if "linkedin" in scraping_sources:
