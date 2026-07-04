@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -934,9 +935,32 @@ def _finalize_live_session(result: dict[str, Any]) -> None:
 
 
 def download_resume(candidate: ApplicationCandidate) -> Path:
-    file_bytes = supabase_utils.supabase.storage.from_(config.SUPABASE_STORAGE_BUCKET).download(
-        candidate.resume_link
-    )
+    last_error: Exception | None = None
+    file_bytes = None
+    for attempt in range(1, 5):
+        try:
+            file_bytes = supabase_utils.supabase.storage.from_(config.SUPABASE_STORAGE_BUCKET).download(
+                candidate.resume_link
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt >= 4:
+                break
+            delay = min(2 ** attempt, 10)
+            logging.warning(
+                "Resume download failed for job %s on attempt %s/4. Retrying in %ss: %s",
+                candidate.job_id,
+                attempt,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+    if file_bytes is None:
+        raise RuntimeError(
+            f"Could not download resume for job {candidate.job_id} after retries: {last_error}"
+        ) from last_error
+
     output_dir = Path(tempfile.gettempdir()) / "jobtrack_application_resumes"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{candidate.job_id}.pdf"
@@ -2789,12 +2813,21 @@ async def main() -> None:
                 logging.info("Skipping non-LinkedIn candidate %s in auto-apply mode.", candidate.job_id)
                 queue_candidate(candidate, status="company_portal_review")
                 continue
-            result = await prepare_linkedin_easy_apply(
-                candidate,
-                headless=effective_headless,
-                allow_submit=submit_allowed,
-                manual_login_wait=args.manual_login_wait,
-            )
+            try:
+                result = await prepare_linkedin_easy_apply(
+                    candidate,
+                    headless=effective_headless,
+                    allow_submit=submit_allowed,
+                    manual_login_wait=args.manual_login_wait,
+                )
+            except Exception as exc:
+                logging.exception("Auto-apply failed for candidate %s; continuing with next candidate.", candidate.job_id)
+                result = {
+                    "job_id": candidate.job_id,
+                    "apply_url": candidate.apply_url,
+                    "status": "automation_error",
+                    "messages": [f"Auto-apply failed safely and continued: {exc}"],
+                }
             queue_candidate(candidate, status=result["status"], result=result)
             results.append(result)
             print(json.dumps(result, indent=2))

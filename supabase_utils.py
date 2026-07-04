@@ -18,8 +18,15 @@ supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_RO
 
 
 def _missing_schema_column(error: Exception) -> str | None:
-    match = re.search(r"Could not find the '([^']+)' column", str(error))
-    return match.group(1) if match else None
+    text = str(error)
+    for pattern in (
+        r"Could not find the '([^']+)' column",
+        r"column\s+(?:\w+\.)?(\w+)\s+does not exist",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _normalize_supabase_timestamp(value: Any) -> str | None:
