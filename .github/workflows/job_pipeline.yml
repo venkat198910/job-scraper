@@ -93,6 +93,14 @@ jobs:
           python scraper.py
         fi
 
+    - name: Upload scraper debug artifacts
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: scraper-debug-${{ matrix.source }}-${{ matrix.chunk_index }}
+        path: /tmp/jobtrack_scraper_debug/
+        if-no-files-found: ignore
+
   pipeline:
     runs-on: ubuntu-latest
     needs: scrape

@@ -1032,6 +1032,10 @@ def _job_key_exists(job_details: dict, job_ids_set: set, company_title_set: set)
     title = str(job_details.get("job_title") or "").strip().lower()
     return bool(company and title and (company, title) in company_title_set)
 
+def _job_id_exists(job_details: dict, job_ids_set: set) -> bool:
+    job_id = str(job_details.get("job_id") or "").strip()
+    return bool(job_id and job_id in job_ids_set)
+
 def _naukri_headers(referer: str = "https://www.naukri.com/") -> dict:
     return {
         "User-Agent": random.choice(user_agents.USER_AGENTS),
@@ -1052,6 +1056,7 @@ def _naukri_search_url(search_query: str, location: str) -> str:
         "location": location,
         "experience": app_settings.get_experience_range()[0],
         "jobAge": 1,
+        "sort": "date",
         "pageNo": 1,
     }
     return "https://www.naukri.com/jobapi/v3/search?" + urlencode(query)
@@ -1064,6 +1069,7 @@ def _naukri_display_url(search_query: str, location: str) -> str:
         "l": location,
         "experience": app_settings.get_experience_range()[0],
         "jobAge": 1,
+        "sort": "date",
     }
     return f"https://www.naukri.com/{slug_query}-jobs-in-{slug_location}?" + urlencode(query)
 
@@ -1170,6 +1176,20 @@ def _naukri_browser_context_args() -> dict:
         args["storage_state"] = storage_state
     return args
 
+def _write_naukri_debug_artifact(page, suffix: str) -> None:
+    debug_dir = os.environ.get("JOBTRACK_DEBUG_DIR", "/tmp/jobtrack_scraper_debug")
+    try:
+        os.makedirs(debug_dir, exist_ok=True)
+        safe_suffix = re.sub(r"[^a-zA-Z0-9_.-]+", "_", suffix).strip("_") or "debug"
+        screenshot_path = os.path.join(debug_dir, f"naukri_{safe_suffix}.png")
+        html_path = os.path.join(debug_dir, f"naukri_{safe_suffix}.html")
+        page.screenshot(path=screenshot_path, full_page=True)
+        with open(html_path, "w", encoding="utf-8") as handle:
+            handle.write(page.content())
+        logging.info("Saved Naukri debug artifacts: %s and %s", screenshot_path, html_path)
+    except Exception as exc:
+        logging.info("Could not save Naukri debug artifact: %s", exc)
+
 def _naukri_card_to_job(card: dict, display_url: str) -> dict | None:
     url = card.get("url")
     title = _plain_text(card.get("title"))
@@ -1228,11 +1248,14 @@ def _fetch_naukri_jobs_with_browser(search_query: str, location: str, limit: int
     browser = None
     try:
         with sync_playwright() as p:
+            storage_state = _naukri_storage_state()
+            logging.info("Naukri browser fallback storage session: %s", "present" if storage_state else "missing")
             browser = p.chromium.launch(
                 headless=_naukri_browser_headless(),
                 args=["--disable-blink-features=AutomationControlled"],
             )
-            context = browser.new_context(**_naukri_browser_context_args())
+            context_args = _naukri_browser_context_args()
+            context = browser.new_context(**context_args)
             page = context.new_page()
             page.goto(display_url, wait_until="domcontentloaded", timeout=60000)
             try:
@@ -1250,7 +1273,11 @@ def _fetch_naukri_jobs_with_browser(search_query: str, location: str, limit: int
                 "permission to access",
             )
             if any(marker in body_text for marker in blocked_markers):
-                logging.warning("Naukri browser scrape was blocked by Naukri/Akamai verification.")
+                logging.warning(
+                    "Naukri browser scrape was blocked by Naukri/Akamai verification. "
+                    "Refresh NAUKRI_STORAGE_STATE_JSON from a logged-in browser session."
+                )
+                _write_naukri_debug_artifact(page, "blocked")
                 return []
 
             try:
@@ -1323,6 +1350,43 @@ def _fetch_naukri_jobs_with_browser(search_query: str, location: str, limit: int
         except Exception:
             pass
 
+def _filter_naukri_jobs(raw_jobs: list[dict], job_ids_set: set, source_label: str) -> list[dict]:
+    jobs = []
+    skipped = {
+        "duplicate_id": 0,
+        "excluded_title": 0,
+        "experience": 0,
+        "stale": 0,
+    }
+    seen_ids = set()
+
+    for job in raw_jobs:
+        job_id = str(job.get("job_id") or "").strip()
+        if job_id and (job_id in seen_ids or _job_id_exists(job, job_ids_set)):
+            skipped["duplicate_id"] += 1
+            continue
+        if _job_matches_excluded_title_keywords(job):
+            skipped["excluded_title"] += 1
+            continue
+        if not _linkedin_job_matches_experience_range(job):
+            skipped["experience"] += 1
+            continue
+        if not _naukri_job_is_fresh(job):
+            skipped["stale"] += 1
+            continue
+        if job_id:
+            seen_ids.add(job_id)
+        jobs.append(job)
+
+    logging.info(
+        "Naukri %s filter summary: raw=%s kept=%s skipped=%s",
+        source_label,
+        len(raw_jobs),
+        len(jobs),
+        skipped,
+    )
+    return jobs
+
 def process_naukri_query(search_query: str, location: str, limit: int | None = None) -> list[dict]:
     if not _is_india_location(location):
         logging.info("Skipping Naukri for non-India location: %s", location)
@@ -1344,19 +1408,12 @@ def process_naukri_query(search_query: str, location: str, limit: int | None = N
             if not raw_jobs:
                 return []
             try:
-                job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+                job_ids_set, _company_title_set = supabase_utils.get_existing_jobs_from_supabase()
             except Exception as exc:
                 logging.warning("Could not fetch existing jobs before Naukri browser dedupe: %s", exc)
-                job_ids_set, company_title_set = set(), set()
+                job_ids_set = set()
 
-            return [
-                job
-                for job in raw_jobs
-                if not _job_key_exists(job, job_ids_set, company_title_set)
-                and not _job_matches_excluded_title_keywords(job)
-                and _linkedin_job_matches_experience_range(job)
-                and _naukri_job_is_fresh(job)
-            ]
+            return _filter_naukri_jobs(raw_jobs, job_ids_set, "browser")
         response.raise_for_status()
         payload = response.json()
     except requests.exceptions.RequestException as exc:
@@ -1371,28 +1428,21 @@ def process_naukri_query(search_query: str, location: str, limit: int | None = N
         raw_jobs = raw_jobs[:limit]
 
     try:
-        job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+        job_ids_set, _company_title_set = supabase_utils.get_existing_jobs_from_supabase()
     except Exception as exc:
         logging.warning("Could not fetch existing jobs before Naukri dedupe: %s", exc)
-        job_ids_set, company_title_set = set(), set()
+        job_ids_set = set()
 
-    jobs = []
+    raw_normalized_jobs = []
     for item in raw_jobs:
         if not isinstance(item, dict):
             continue
         details = _normalize_naukri_job(item, display_url)
         if not details:
             continue
-        if _job_key_exists(details, job_ids_set, company_title_set):
-            continue
-        if _job_matches_excluded_title_keywords(details):
-            continue
-        if not _linkedin_job_matches_experience_range(details):
-            continue
-        if not _naukri_job_is_fresh(details):
-            continue
-        jobs.append(details)
+        raw_normalized_jobs.append(details)
 
+    jobs = _filter_naukri_jobs(raw_normalized_jobs, job_ids_set, "api")
     logging.info("Naukri matched %s new job(s) for %r in %r", len(jobs), search_query, location)
     return jobs
 

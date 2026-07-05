@@ -43,11 +43,23 @@ def _normalize_supabase_timestamp(value: Any) -> str | None:
             return None
 
         parsed = None
+        numeric_text = text.replace(".", "", 1)
+        if numeric_text.isdigit():
+            try:
+                epoch_value = float(text)
+                # Career APIs commonly return Unix timestamps in milliseconds.
+                if epoch_value > 10_000_000_000:
+                    epoch_value = epoch_value / 1000
+                parsed = datetime.datetime.fromtimestamp(epoch_value, tz=datetime.timezone.utc)
+            except (OSError, OverflowError, ValueError):
+                parsed = None
+
         iso_text = text.replace("Z", "+00:00")
-        try:
-            parsed = datetime.datetime.fromisoformat(iso_text)
-        except ValueError:
-            pass
+        if parsed is None:
+            try:
+                parsed = datetime.datetime.fromisoformat(iso_text)
+            except ValueError:
+                pass
 
         if parsed is None:
             try:
