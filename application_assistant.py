@@ -66,6 +66,21 @@ class ApplicationCandidate:
     posted_at: str = ""
 
 
+def _dedupe_text(value: str | None) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _candidate_dedupe_key(candidate: ApplicationCandidate) -> tuple[str, str, str] | None:
+    title = _dedupe_text(candidate.job_title)
+    company = _dedupe_text(candidate.company)
+    location = _dedupe_text(candidate.location)
+    if not title or not company:
+        return None
+    return company, title, location
+
+
 def linkedin_job_url(job_id: str) -> str:
     return f"https://www.linkedin.com/jobs/view/{job_id}"
 
@@ -320,9 +335,11 @@ def fetch_candidates(
 
     candidates = []
     stale_candidates = []
+    seen_candidate_keys: dict[tuple[str, str, str], str] = {}
     skipped_missing_resume = 0
     skipped_score = 0
     skipped_freshness = 0
+    skipped_duplicates = 0
     for job in response.data or []:
         if not job.get("customized_resume_id") or not job.get("resume_link"):
             skipped_missing_resume += 1
@@ -351,6 +368,22 @@ def fetch_candidates(
             scraped_at=scraped_at,
             posted_at=posted_at,
         )
+        dedupe_key = _candidate_dedupe_key(candidate)
+        if dedupe_key:
+            existing_job_id = seen_candidate_keys.get(dedupe_key)
+            if existing_job_id:
+                skipped_duplicates += 1
+                logging.info(
+                    "Skipping semantic duplicate application candidate %s; already kept %s for %s | %s | %s",
+                    candidate.job_id,
+                    existing_job_id,
+                    candidate.company,
+                    candidate.job_title,
+                    candidate.location,
+                )
+                continue
+            seen_candidate_keys[dedupe_key] = candidate.job_id
+
         if not _candidate_is_fresh(candidate, max_age_minutes):
             skipped_freshness += 1
             age_minutes = _candidate_age_minutes(candidate)
@@ -379,12 +412,13 @@ def fetch_candidates(
         candidates = candidates[:fallback_limit]
 
     logging.info(
-        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s stale_fallback_available=%s max_age_minutes=%s",
+        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s skipped_duplicates=%s stale_fallback_available=%s max_age_minutes=%s",
         len(rows),
         len(candidates),
         skipped_missing_resume,
         skipped_score,
         skipped_freshness,
+        skipped_duplicates,
         len(stale_candidates),
         max_age_minutes,
     )
