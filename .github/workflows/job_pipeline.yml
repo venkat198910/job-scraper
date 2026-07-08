@@ -63,6 +63,8 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       NAUKRI_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_STORAGE_STATE_JSON }}
       NAUKRI_GULF_STORAGE_STATE_JSON: ${{ secrets.NAUKRI_GULF_STORAGE_STATE_JSON }}
+      NAUKRI_STORAGE_STATE: naukri_storage_state.json
+      NAUKRI_GULF_STORAGE_STATE: naukri_gulf_storage_state.json
       NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
       NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
       NAUKRI_GULF_USERNAME: ${{ secrets.NAUKRI_GULF_USERNAME }}
@@ -87,6 +89,24 @@ jobs:
         pip install -r requirements.txt
         if [ "${{ matrix.source }}" = "naukri" ] || [ "${{ matrix.source }}" = "naukri_gulf" ]; then
           python -m playwright install --with-deps chromium
+        fi
+
+    - name: Refresh Naukri session for this run
+      if: matrix.source == 'naukri'
+      run: |
+        if [ -n "${NAUKRI_USERNAME:-}" ] && [ -n "${NAUKRI_PASSWORD:-}" ]; then
+          xvfb-run -a python save_browser_session.py naukri --output "$NAUKRI_STORAGE_STATE" --auto-login --wait-seconds 1 || true
+        else
+          echo "Naukri credentials are missing; using existing NAUKRI_STORAGE_STATE_JSON if present."
+        fi
+
+    - name: Refresh Naukri Gulf session for this run
+      if: matrix.source == 'naukri_gulf'
+      run: |
+        if [ -n "${NAUKRI_GULF_USERNAME:-}" ] && [ -n "${NAUKRI_GULF_PASSWORD:-}" ]; then
+          xvfb-run -a python save_browser_session.py naukri_gulf --output "$NAUKRI_GULF_STORAGE_STATE" --auto-login --wait-seconds 1 || true
+        else
+          echo "Naukri Gulf credentials are missing; using existing NAUKRI_GULF_STORAGE_STATE_JSON if present."
         fi
 
     - name: Run job scraper
