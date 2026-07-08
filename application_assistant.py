@@ -24,6 +24,7 @@ APPLICATION_QUEUE_STORAGE_BUCKET = getattr(config, "SUPABASE_RESUME_STORAGE_BUCK
 APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
 APPLICATION_SESSION_STORAGE_PREFIX = "application_sessions"
 APPLICATION_DEBUG_DIR = Path(tempfile.gettempdir()) / "jobtrack_application_debug"
+DISMISSED_QUEUE_STATUSES = {"deleted", "dismissed"}
 LIVE_AGENT_DIR = Path(tempfile.gettempdir()) / "jobtrack_live_agent"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
@@ -561,6 +562,12 @@ def queue_candidate(
 ) -> bool:
     effective_apply_url = apply_url or candidate.apply_url
     effective_portal = portal or detect_portal(effective_apply_url, candidate.provider)
+    if _queue_candidate_is_dismissed(candidate):
+        logging.info(
+            "Skipping application candidate %s because it was deleted/dismissed from the queue.",
+            candidate.job_id,
+        )
+        return False
     result_notes = _queue_notes_from_result(result)
     payload = {
         "job_id": candidate.job_id,
@@ -591,6 +598,29 @@ def queue_candidate(
     except Exception as exc:
         logging.warning("Could not write application_queue row for %s; using storage fallback: %s", candidate.job_id, exc)
         return queue_candidate_to_storage(candidate, payload)
+
+
+def _queue_candidate_is_dismissed(candidate: ApplicationCandidate) -> bool:
+    try:
+        response = (
+            supabase_utils.supabase.table(APPLICATION_QUEUE_TABLE)
+            .select("status,run_mode")
+            .eq("job_id", candidate.job_id)
+            .eq("application_type", candidate.application_type)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return False
+
+    row = (response.data or [None])[0]
+    if not isinstance(row, dict):
+        return False
+
+    return (
+        str(row.get("status") or "").lower() in DISMISSED_QUEUE_STATUSES
+        or str(row.get("run_mode") or "").lower() in DISMISSED_QUEUE_STATUSES
+    )
 
 
 def queue_candidate_to_storage(candidate: ApplicationCandidate, payload: dict[str, Any]) -> bool:
