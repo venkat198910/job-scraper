@@ -271,18 +271,52 @@ async def delete_old_inactive_jobs():
     """Permanently deletes very old inactive jobs."""
     logging.info("--- Starting Task: Delete Old Inactive Jobs ---")
     job_deletion_days = app_settings.get_advanced_int("jobDeletionDays")
+    applied_retention_days = app_settings.get_advanced_int("appliedJobRetentionDays")
     delete_older_than_date = get_past_date(job_deletion_days)
-    delete_older_than_date_str = delete_older_than_date.isoformat()
+    applied_delete_older_than_date = get_past_date(applied_retention_days)
     inactive_states = ['expired', 'removed']
+    protected_statuses = {'applied', 'offer', 'offered', 'interviewing'}
 
     try:
-        # Select jobs to delete
-        # No need to select data, just filter and delete
-        delete_response = supabase.table(config.SUPABASE_TABLE_NAME)\
-            .delete()\
+        response = supabase.table(config.SUPABASE_TABLE_NAME)\
+            .select("job_id,status,job_state,scraped_at,application_date")\
             .eq("is_active", False)\
             .in_("job_state", inactive_states)\
-            .lt("scraped_at", delete_older_than_date_str)\
+            .execute()
+
+        jobs_to_delete = []
+        protected_applied_count = 0
+        for job in response.data or []:
+            status = (job.get("status") or "").lower()
+
+            if status in protected_statuses:
+                application_date = _parse_job_timestamp(job.get("application_date"))
+                if not application_date or application_date >= applied_delete_older_than_date:
+                    protected_applied_count += 1
+                    continue
+
+                jobs_to_delete.append(job["job_id"])
+                continue
+
+            scraped_at = _parse_job_timestamp(job.get("scraped_at"))
+            if scraped_at and scraped_at < delete_older_than_date:
+                jobs_to_delete.append(job["job_id"])
+
+        if protected_applied_count:
+            logging.info(
+                "Kept %s applied/interviewing inactive jobs for the %s day retention window.",
+                protected_applied_count,
+                applied_retention_days,
+            )
+
+        if not jobs_to_delete:
+            logging.info("No old inactive jobs found to delete.")
+            logging.info("--- Finished Task: Delete Old Inactive Jobs ---")
+            return
+
+        delete_response = supabase.table(config.SUPABASE_TABLE_NAME)\
+            .delete()\
+            .in_("job_id", jobs_to_delete)\
             .execute()
 
         # Check response structure for delete count
@@ -293,7 +327,12 @@ async def delete_old_inactive_jobs():
              deleted_count = delete_response.count
 
         if deleted_count > 0:
-            logging.info(f"Successfully deleted {deleted_count} inactive jobs older than {job_deletion_days} days.")
+            logging.info(
+                "Successfully deleted %s inactive jobs. Non-applied threshold=%s days, applied threshold=%s days.",
+                deleted_count,
+                job_deletion_days,
+                applied_retention_days,
+            )
         else:
             logging.info("No old inactive jobs found to delete.")
             # Log raw response if structure is unexpected but count is 0

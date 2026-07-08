@@ -2136,7 +2136,12 @@ def _update_job_after_submission(candidate: ApplicationCandidate | None, result:
         return
     try:
         supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME).update(
-            {"status": "applied", "application_date": datetime.now(timezone.utc).isoformat()}
+            {
+                "status": "applied",
+                "application_date": datetime.now(timezone.utc).isoformat(),
+                "job_state": "new",
+                "is_active": True,
+            }
         ).eq("job_id", candidate.job_id).execute()
     except Exception as exc:
         logging.warning("Submitted, but could not update job %s as applied: %s", candidate.job_id, exc)
