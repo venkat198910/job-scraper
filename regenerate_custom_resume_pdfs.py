@@ -1,6 +1,8 @@
 import argparse
 import logging
+import re
 
+import app_settings
 import config
 import pdf_generator
 import supabase_utils
@@ -9,6 +11,32 @@ from resume_filename import build_custom_resume_filename
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+def _configured_total_experience_phrase() -> str:
+    profile = app_settings.get_application_profile()
+    raw_total_experience = str(profile.get("totalExperience") or "9.6").strip()
+    try:
+        years = int(float(raw_total_experience))
+    except ValueError:
+        years = 9
+    return f"over {years} years"
+
+
+def _enforce_total_experience(summary: str) -> str:
+    expected_phrase = _configured_total_experience_phrase()
+    text = str(summary or "")
+    patterns = [
+        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
+        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\b", expected_phrase),
+        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
+        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years'\s+experience\b", f"{expected_phrase} of experience"),
+    ]
+    for pattern, replacement in patterns:
+        text, count = re.subn(pattern, replacement, text, count=1, flags=re.IGNORECASE)
+        if count:
+            return text
+    return text
 
 
 def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -> list[dict]:
@@ -85,6 +113,7 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
         resume_id = record.get("id")
         try:
             resume_data = Resume.model_validate(record)
+            resume_data.summary = _enforce_total_experience(resume_data.summary)
             pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
             destination_path = _new_resume_path(record, job_metadata_by_resume_id.get(str(resume_id)))
 
@@ -99,7 +128,7 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
 
             response = (
                 supabase_utils.supabase.table(config.SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME)
-                .update({"resume_link": uploaded_path})
+                .update({"resume_link": uploaded_path, "summary": resume_data.summary})
                 .eq("id", resume_id)
                 .execute()
             )

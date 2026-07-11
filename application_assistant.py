@@ -25,6 +25,8 @@ APPLICATION_QUEUE_STORAGE_PREFIX = "application_queue"
 APPLICATION_SESSION_STORAGE_PREFIX = "application_sessions"
 APPLICATION_DEBUG_DIR = Path(tempfile.gettempdir()) / "jobtrack_application_debug"
 DISMISSED_QUEUE_STATUSES = {"deleted", "dismissed"}
+TERMINAL_QUEUE_STATUSES = {"submitted", "completed", *DISMISSED_QUEUE_STATUSES}
+APPLIED_JOB_STATUSES = {"applied", "offer", "offered", "interviewing"}
 LIVE_AGENT_DIR = Path(tempfile.gettempdir()) / "jobtrack_live_agent"
 SAFE_FINAL_SUBMIT_TEXT = re.compile(r"^(submit application|submit|apply)$", re.IGNORECASE)
 WORKDAY_URL_PATTERN = re.compile(r"(myworkdayjobs\.com|myworkdaysite\.com|workdayjobs\.com)", re.IGNORECASE)
@@ -341,7 +343,11 @@ def fetch_candidates(
     skipped_score = 0
     skipped_freshness = 0
     skipped_duplicates = 0
+    skipped_applied = 0
     for job in response.data or []:
+        if str(job.get("status") or "").lower() in APPLIED_JOB_STATUSES:
+            skipped_applied += 1
+            continue
         if not job.get("customized_resume_id") or not job.get("resume_link"):
             skipped_missing_resume += 1
             continue
@@ -413,13 +419,14 @@ def fetch_candidates(
         candidates = candidates[:fallback_limit]
 
     logging.info(
-        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s skipped_duplicates=%s stale_fallback_available=%s max_age_minutes=%s",
+        "Application candidate scan: rpc_rows=%s kept=%s skipped_missing_resume=%s skipped_score=%s skipped_freshness=%s skipped_duplicates=%s skipped_applied=%s stale_fallback_available=%s max_age_minutes=%s",
         len(rows),
         len(candidates),
         skipped_missing_resume,
         skipped_score,
         skipped_freshness,
         skipped_duplicates,
+        skipped_applied,
         len(stale_candidates),
         max_age_minutes,
     )
@@ -618,8 +625,8 @@ def _queue_candidate_is_dismissed(candidate: ApplicationCandidate) -> bool:
         return False
 
     return (
-        str(row.get("status") or "").lower() in DISMISSED_QUEUE_STATUSES
-        or str(row.get("run_mode") or "").lower() in DISMISSED_QUEUE_STATUSES
+        str(row.get("status") or "").lower() in TERMINAL_QUEUE_STATUSES
+        or str(row.get("run_mode") or "").lower() in TERMINAL_QUEUE_STATUSES
     )
 
 

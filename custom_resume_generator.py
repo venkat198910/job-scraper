@@ -21,6 +21,48 @@ import app_settings
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def _configured_total_experience_phrase() -> str:
+    profile = app_settings.get_application_profile()
+    raw_total_experience = str(profile.get("totalExperience") or "9.6").strip()
+
+    try:
+        years = int(float(raw_total_experience))
+    except ValueError:
+        years = 9
+
+    return f"over {years} years"
+
+
+def _enforce_total_experience(summary: str) -> str:
+    if not summary:
+        return ""
+
+    expected_phrase = _configured_total_experience_phrase()
+    text = str(summary)
+    patterns = [
+        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
+        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\b", expected_phrase),
+        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
+        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years'\s+experience\b", f"{expected_phrase} of experience"),
+    ]
+
+    replaced = False
+    for pattern, replacement in patterns:
+        text, count = re.subn(pattern, replacement, text, count=1, flags=re.IGNORECASE)
+        replaced = replaced or count > 0
+
+    if not replaced:
+        text = re.sub(
+            r"^(DevOps professional|Cloud professional|SRE professional|Platform engineer|Infrastructure engineer)\b",
+            rf"\1 with {expected_phrase} of experience",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+    return text
+
 # --- LLM Personalization Function ---
 def extract_json_from_text(text: str) -> str:
     """
@@ -72,6 +114,7 @@ def _clean_resume_bullets(text: str) -> str:
 
 def sanitize_resume_content(resume_data: Resume) -> Resume:
     cleaned = resume_data.model_copy(deep=True)
+    cleaned.summary = _enforce_total_experience(cleaned.summary)
 
     for exp in cleaned.experience or []:
         exp.description = _clean_resume_bullets(exp.description)
@@ -179,6 +222,7 @@ async def personalize_section_with_llm(
         **Instructions:**
         - Rewrite **only** the summary to be concise, impactful, and highly relevant to the Target Job.
         - **CRITICAL: The core professional identity and experience level (e.g., "IT Support and Cybersecurity Specialist with 4+ years") from the "Original Content of This Section" MUST be preserved.** Do NOT change the candidate's stated primary role or invent a new one like "Frontend Engineer" if it wasn't their original title. The goal is to make their *existing* role and experience sound relevant, not to misrepresent their primary job function.
+        - **CRITICAL EXPERIENCE FACT:** The candidate has {_configured_total_experience_phrase()} of total professional experience. You MUST NOT write 8 years, 8+ years, or any lower total experience value. Use "{_configured_total_experience_phrase()}" when mentioning total experience.
         - Highlight 2-3 key qualifications or experiences from the "Full Resume Context" or "Original Content of This Section" that ALIGN with the "Job Description." These highlighted aspects should be FACTUALLY based on the provided resume materials.
         - Use strong action verbs and keywords from the "Job Description" where appropriate, but ONLY when describing actual experiences or skills present in the resume.
         - Keep the summary to 55-75 words maximum so the generated resume stays detailed but within two pages.
