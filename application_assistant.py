@@ -203,6 +203,10 @@ def build_apply_url(job: dict[str, Any]) -> str:
     provider = (job.get("provider") or "").lower()
     if provider == "linkedin":
         return linkedin_job_url(str(job["job_id"]))
+    if provider in {"naukri", "naukri_gulf"}:
+        derived_url = _naukri_job_url(str(job.get("job_id") or ""), provider)
+        if derived_url:
+            return derived_url
     explicit_url = str(
         job.get("apply_url")
         or job.get("job_url")
@@ -215,6 +219,14 @@ def build_apply_url(job: dict[str, Any]) -> str:
     if provider.startswith("company_careers"):
         return _company_career_fallback_url(job)
     return ""
+
+
+def _naukri_job_url(job_id: str, provider: str) -> str:
+    match = re.search(r"(\d{8,})", job_id or "")
+    if not match:
+        return ""
+    host = "www.naukrigulf.com" if provider == "naukri_gulf" else "www.naukri.com"
+    return f"https://{host}/job-listings-{match.group(1)}"
 
 
 def _score(job: dict[str, Any]) -> int:
@@ -2619,13 +2631,26 @@ def backfill_application_queue_urls(limit: int = 200) -> int:
         }
 
         try:
-            job_response = (
-                supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
-                .select("job_id,company,job_title,provider")
-                .eq("job_id", job["job_id"])
-                .limit(1)
-                .execute()
-            )
+            job_select = "job_id,company,job_title,provider,apply_url,job_url,career_url"
+            try:
+                job_response = (
+                    supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+                    .select(job_select)
+                    .eq("job_id", job["job_id"])
+                    .limit(1)
+                    .execute()
+                )
+            except Exception as exc:
+                if supabase_utils._missing_schema_column(exc) == "apply_url":
+                    job_response = (
+                        supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+                        .select("job_id,company,job_title,provider,job_url,career_url")
+                        .eq("job_id", job["job_id"])
+                        .limit(1)
+                        .execute()
+                    )
+                else:
+                    raise
             job_rows = job_response.data or []
             if job_rows:
                 job = {**job, **job_rows[0], "provider": job_rows[0].get("provider") or provider}
