@@ -609,6 +609,9 @@ def save_customized_resume(resume_data: 'Resume', resume_path: str) -> Optional[
         else:
             data_to_insert = resume_data.dict(exclude_none=True)
 
+        # Render-only helper used by the PDF template; live DB schema does not
+        # require a matching column.
+        data_to_insert.pop("professional_title", None)
         data_to_insert['resume_link'] = resume_path
 
         logging.info(

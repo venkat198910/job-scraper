@@ -379,6 +379,10 @@ def _profile_photo_path() -> str:
 
 
 def _resume_tagline(resume_data: Resume) -> str:
+    configured_title = _clean_text(getattr(resume_data, "professional_title", ""))
+    if configured_title:
+        return configured_title
+
     skills = {skill.lower() for skill in (resume_data.skills or [])}
     first_theme = "Kubernetes & CI/CD Expertise"
     second_theme = "Infrastructure Automation"
@@ -778,6 +782,10 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
 
     if _has_value(resume_data.name):
         story.append(_paragraph(str(resume_data.name).upper(), style["name"]))
+
+    tagline = _resume_tagline(resume_data)
+    if _has_value(tagline):
+        story.append(_paragraph(tagline, style["contact"]))
 
     contact_parts = []
     for value in [resume_data.email, resume_data.phone, resume_data.location]:

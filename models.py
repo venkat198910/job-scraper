@@ -33,6 +33,7 @@ class Links(BaseModel):
 
 class Resume(BaseModel):
     name: str = ""
+    professional_title: str = ""
     email: str = ""
     phone: str = ""
     location: str = ""

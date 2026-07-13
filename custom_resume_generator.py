@@ -63,6 +63,78 @@ def _enforce_total_experience(summary: str) -> str:
 
     return text
 
+
+def _clean_headline_role(job_title: str) -> str:
+    title = re.sub(r"\([^)]*\)", " ", str(job_title or ""))
+    title = re.sub(r"\[[^\]]*\]", " ", title)
+    title = re.sub(r"\b(?:exp|experience)\s*[:\-]?\s*\d+\+?\s*(?:to|-)?\s*\d*\+?\s*(?:years?|yrs?)?\b", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b(?:immediate joiner|remote work|hybrid|onsite|india|uae|dubai|bangalore|bengaluru)\b", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"[_|/]+", " ", title)
+    title = re.sub(r"\s+", " ", title).strip(" -,:")
+
+    lowered = title.lower()
+    role_map = [
+        (r"\bsite reliability engineer\b|\bsre\b", "Site Reliability Engineer"),
+        (r"\bplatform engineer\b", "Platform Engineer"),
+        (r"\bcloud platform engineer\b", "Cloud Platform Engineer"),
+        (r"\bcloud engineer\b", "Cloud Engineer"),
+        (r"\bdevsecops\b", "DevSecOps Engineer"),
+        (r"\bdevops\b", "Senior DevOps Engineer"),
+        (r"\bkubernetes\b", "Kubernetes Engineer"),
+        (r"\brelease engineer\b", "Release Engineer"),
+        (r"\binfrastructure\b", "Infrastructure Engineer"),
+    ]
+    for pattern, role in role_map:
+        if re.search(pattern, lowered):
+            return role
+
+    return title[:42] if title else "Senior DevOps Engineer"
+
+
+def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | None = None) -> str:
+    """Build a concise JD-aligned header line without inventing experience."""
+    role = _clean_headline_role(str(job_details.get("job_title") or ""))
+    haystack = " ".join(
+        str(value or "")
+        for value in [
+            job_details.get("job_title"),
+            job_details.get("level"),
+            job_details.get("description"),
+        ]
+    ).lower()
+
+    theme_candidates = [
+        (("gcp", "google cloud", "gke"), "GCP Cloud"),
+        (("aws", "amazon web services", "eks"), "AWS Cloud"),
+        (("azure", "aks"), "Azure Cloud"),
+        (("kubernetes", "gke", "eks", "aks", "containers"), "Kubernetes"),
+        (("terraform", "iac", "infrastructure as code"), "Terraform & IaC"),
+        (("ci/cd", "cicd", "jenkins", "github actions", "gitlab ci"), "CI/CD Automation"),
+        (("sre", "site reliability", "reliability"), "Reliability Engineering"),
+        (("observability", "prometheus", "grafana", "monitoring"), "Observability"),
+        (("devsecops", "security", "vulnerability"), "DevSecOps"),
+        (("docker", "container"), "Container Platforms"),
+        (("platform",), "Platform Engineering"),
+        (("automation", "ansible", "python"), "Infrastructure Automation"),
+    ]
+
+    themes: list[str] = []
+    for keywords, label in theme_candidates:
+        if any(keyword in haystack for keyword in keywords) and label not in themes:
+            themes.append(label)
+        if len(themes) >= 2:
+            break
+
+    if len(themes) < 2:
+        for fallback in ["Kubernetes", "CI/CD Automation", "Infrastructure Automation"]:
+            if fallback not in themes:
+                themes.append(fallback)
+            if len(themes) >= 2:
+                break
+
+    return " | ".join([role, *themes[:2]])
+
+
 # --- LLM Personalization Function ---
 def extract_json_from_text(text: str) -> str:
     """
@@ -504,6 +576,7 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             return 
 
         personalized_resume_data = sanitize_resume_content(personalized_resume_data)
+        personalized_resume_data.professional_title = build_professional_title(job_details, personalized_resume_data)
 
         # 2. Generate PDF
         logging.info(f"Generating PDF for job_id: {job_id}")

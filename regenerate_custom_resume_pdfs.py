@@ -4,6 +4,7 @@ import re
 
 import app_settings
 import config
+from custom_resume_generator import build_professional_title
 import pdf_generator
 import supabase_utils
 from models import Resume
@@ -74,7 +75,7 @@ def _fetch_job_metadata_by_resume_id() -> dict[str, dict]:
     while True:
         response = (
             supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
-            .select("job_id, company, job_title, customized_resume_id")
+            .select("job_id, company, job_title, level, description, customized_resume_id")
             .not_.is_("customized_resume_id", None)
             .range(offset, offset + batch_size - 1)
             .execute()
@@ -114,8 +115,10 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
         try:
             resume_data = Resume.model_validate(record)
             resume_data.summary = _enforce_total_experience(resume_data.summary)
+            job_metadata = job_metadata_by_resume_id.get(str(resume_id), {})
+            resume_data.professional_title = build_professional_title(job_metadata, resume_data)
             pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
-            destination_path = _new_resume_path(record, job_metadata_by_resume_id.get(str(resume_id)))
+            destination_path = _new_resume_path(record, job_metadata)
 
             if dry_run:
                 logging.info("DRY RUN: would update customized_resume id=%s to %s", resume_id, destination_path)
