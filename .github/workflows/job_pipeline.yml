@@ -2,19 +2,77 @@ name: Job Pipeline
 
 on:
   schedule:
-  # GitHub cron is UTC. Run every 2 hours, offset from :00 to reduce
-  # GitHub Actions scheduler delays during top-of-hour traffic.
-  - cron: '5 */2 * * *'
+  # GitHub cron is best-effort and can skip/delay individual ticks.
+  # Trigger hourly, then gate below so the expensive pipeline only runs
+  # when there has not been a successful scheduled run in the last 100 minutes.
+  - cron: '7 * * * *'
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
 
 concurrency:
   group: job-pipeline
   cancel-in-progress: false
 
 jobs:
+  schedule-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+    - name: Decide whether this run should process jobs
+      id: gate
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ "${{ github.event_name }}" != "schedule" ]; then
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "Manual run: processing jobs."
+          exit 0
+        fi
+
+        cutoff_epoch="$(date -u -d '100 minutes ago' +%s)"
+        runs_json="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/job_pipeline.yml/runs?branch=${GITHUB_REF_NAME}&event=schedule&status=success&per_page=5" || echo '{}')"
+
+        recent_success="$(
+          RUNS_JSON="$runs_json" CUTOFF_EPOCH="$cutoff_epoch" python - <<'PY'
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        try:
+            runs = json.loads(os.environ.get("RUNS_JSON", "{}")).get("workflow_runs", [])
+        except Exception:
+            runs = []
+
+        cutoff = int(os.environ["CUTOFF_EPOCH"])
+        recent = False
+        for run in runs:
+            completed_at = run.get("updated_at") or run.get("created_at")
+            if not completed_at:
+                continue
+            completed_epoch = int(datetime.fromisoformat(completed_at.replace("Z", "+00:00")).timestamp())
+            if completed_epoch >= cutoff:
+                recent = True
+                break
+        print("true" if recent else "false")
+        PY
+        )"
+
+        if [ "$recent_success" = "true" ]; then
+          echo "should_run=false" >> "$GITHUB_OUTPUT"
+          echo "Recent successful scheduled run found within 100 minutes; skipping expensive jobs."
+        else
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "No recent successful scheduled run found; processing jobs."
+        fi
+
   scrape:
     runs-on: ubuntu-latest
+    needs: schedule-gate
+    if: needs.schedule-gate.outputs.should_run == 'true'
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -127,8 +185,10 @@ jobs:
 
   pipeline:
     runs-on: ubuntu-latest
-    needs: scrape
-    if: always()
+    needs:
+    - schedule-gate
+    - scrape
+    if: needs.schedule-gate.outputs.should_run == 'true' && always()
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
