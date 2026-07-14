@@ -4,7 +4,7 @@ on:
   schedule:
   # GitHub cron is UTC. Run every 2 hours, offset from :00 to reduce
   # scheduler delays during top-of-hour traffic.
-  - cron: '17 */2 * * *'
+  - cron: '0 */1 * * *'
   workflow_dispatch:
 
 permissions:
