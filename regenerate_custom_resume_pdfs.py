@@ -1,10 +1,8 @@
 import argparse
 import logging
-import re
 
-import app_settings
 import config
-from custom_resume_generator import build_professional_title
+from custom_resume_generator import _enforce_total_experience, build_professional_title
 import pdf_generator
 import supabase_utils
 from models import Resume
@@ -12,32 +10,6 @@ from resume_filename import build_custom_resume_filename
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-
-def _configured_total_experience_phrase() -> str:
-    profile = app_settings.get_application_profile()
-    raw_total_experience = str(profile.get("totalExperience") or "9.6").strip()
-    try:
-        years = int(float(raw_total_experience))
-    except ValueError:
-        years = 9
-    return f"over {years} years"
-
-
-def _enforce_total_experience(summary: str) -> str:
-    expected_phrase = _configured_total_experience_phrase()
-    text = str(summary or "")
-    patterns = [
-        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
-        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\b", expected_phrase),
-        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
-        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years'\s+experience\b", f"{expected_phrase} of experience"),
-    ]
-    for pattern, replacement in patterns:
-        text, count = re.subn(pattern, replacement, text, count=1, flags=re.IGNORECASE)
-        if count:
-            return text
-    return text
 
 
 def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -> list[dict]:

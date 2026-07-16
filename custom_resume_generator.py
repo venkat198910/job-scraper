@@ -21,17 +21,11 @@ import app_settings
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+CUSTOM_RESUME_TOTAL_EXPERIENCE = "9+ years"
+
 
 def _configured_total_experience_phrase() -> str:
-    profile = app_settings.get_application_profile()
-    raw_total_experience = str(profile.get("totalExperience") or "9.6").strip()
-
-    try:
-        years = int(float(raw_total_experience))
-    except ValueError:
-        years = 9
-
-    return f"over {years} years"
+    return CUSTOM_RESUME_TOTAL_EXPERIENCE
 
 
 def _enforce_total_experience(summary: str) -> str:
