@@ -393,6 +393,7 @@ COMPANY_CAREER_TARGETS = [
     {"name": "Siemens Healthineers", "career_url": "https://onehealthineers.wd3.myworkdayjobs.com/SHSJB", "ats": "workday", "host": "onehealthineers.wd3.myworkdayjobs.com", "tenant": "onehealthineers", "site": "SHSJB", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Rockwell Automation", "career_url": "https://rockwellautomation.wd1.myworkdayjobs.com/External_Rockwell_Automation", "ats": "workday", "host": "rockwellautomation.wd1.myworkdayjobs.com", "tenant": "rockwellautomation", "site": "External_Rockwell_Automation", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Workday", "career_url": "https://workday.wd5.myworkdayjobs.com/Workday", "ats": "workday", "host": "workday.wd5.myworkdayjobs.com", "tenant": "workday", "site": "Workday", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Genpact", "career_url": "https://genpact.wd108.myworkdayjobs.com/External_Careers", "ats": "workday", "host": "genpact.wd108.myworkdayjobs.com", "tenant": "genpact", "site": "External_Careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Arm", "ats": "jibe", "base_url": "https://careers.arm.com", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {
         "name": "AMD",
@@ -457,22 +458,55 @@ COMPANY_CAREER_TARGETS = [
     {"name": "Perplexity", "ats": "ashby", "slug": "perplexity"},
 ]
 
+# Official career pages for 30 major IT services and consulting companies.
+# ATS-backed entries are also added to COMPANY_CAREER_TARGETS when the site has
+# a public endpoint supported by the scraper.
+SERVICE_BASED_COMPANY_CAREER_PAGE_URLS = {
+    "Accenture": "https://www.accenture.com/in-en/careers/jobsearch",
+    "Tata Consultancy Services": "https://www.tcs.com/careers/india",
+    "Infosys": "https://career.infosys.com/",
+    "Wipro": "https://careers.wipro.com/",
+    "HCLTech": "https://careers.hcltech.com/",
+    "Cognizant": "https://careers.cognizant.com/india-en/",
+    "Capgemini": "https://www.capgemini.com/in-en/careers/",
+    "Tech Mahindra": "https://careers.techmahindra.com/",
+    "LTIMindtree": "https://careers.ltimindtree.com/",
+    "Mphasis": "https://careers.mphasis.com/",
+    "Persistent Systems": "https://careers.persistent.com/",
+    "Coforge": "https://careers.coforge.com/",
+    "Hexaware": "https://jobs.hexaware.com/",
+    "Birlasoft": "https://www.birlasoft.com/careers",
+    "KPIT Technologies": "https://www.kpit.com/careers-overview/",
+    "Zensar Technologies": "https://www.zensar.com/careers",
+    "Sonata Software": "https://www.sonata-software.com/careers",
+    "Cyient": "https://www.cyient.careers/",
+    "NTT DATA": "https://careers-inc.nttdata.com/",
+    "DXC Technology": "https://careers.dxc.com/",
+    "CGI": "https://www.cgi.com/en/careers",
+    "Genpact": "https://genpact.wd108.myworkdayjobs.com/External_Careers",
+    "EPAM Systems": "https://careers.epam.com/en/jobs",
+    "Thoughtworks": "https://www.thoughtworks.com/careers/jobs",
+    "Publicis Sapient": "https://careers.publicissapient.com/",
+    "Deloitte": "https://www.deloitte.com/global/en/careers/job-search.html",
+    "PwC": "https://www.pwc.com/gx/en/careers.html",
+    "EY": "https://careers.ey.com/",
+    "KPMG": "https://kpmg.com/xx/en/careers/job-search.html",
+    "IBM": "https://www.ibm.com/careers",
+}
+
 # Official career page URL catalog requested by the user. Not every URL has a
 # public ATS API connector yet; COMPANY_CAREER_TARGETS above controls what is
 # actively scraped today, while this catalog preserves the requested sources for
 # incremental connector coverage.
 COMPANY_CAREER_PAGE_URLS = {
+    **SERVICE_BASED_COMPANY_CAREER_PAGE_URLS,
     "CBA India Services Private Limited": "https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers?q=DevOps&locationCountry=c4f78be1a8f14da0ab49ce1162348a5e&hiringCompany=007f52aebee601634bb894dc0d370187",
     "Lloyds": "https://lbg.wd3.myworkdayjobs.com/en-US/Lloyds_Technology_Centre?q=DevOps+Engineer",
-    "Deloitte": "https://www.deloitte.com/global/en/careers/job-search.html",
     "Deloitte US": "https://apply.deloitte.com/en_US/careers/SearchJobs",
     "Deloitte Ireland": "https://deloitteie.wd3.myworkdayjobs.com/experienced_professionals",
-    "KPMG": "https://kpmg.com/xx/en/careers/job-search.html",
     "KPMG US": "https://www.kpmguscareers.com/job-search/",
     "KPMG Global Services": "https://ejgk.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_3",
-    "EY": "https://careers.ey.com/",
     "EY Global": "https://eyglobal.yello.co/job_boards/c1riT--B2O-KySgYWsZO1Q",
-    "PwC": "https://www.pwc.com/gx/en/careers.html",
     "PwC Global": "https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers",
     "PwC US": "https://pwc.wd3.myworkdayjobs.com/US_Experienced_Careers",
     "Google": "https://careers.google.com",
@@ -490,7 +524,6 @@ COMPANY_CAREER_PAGE_URLS = {
     "SAP": "https://www.sap.com/about/careers.html",
     "Oracle": "https://careers.oracle.com",
     "Cisco": "https://jobs.cisco.com",
-    "IBM": "https://www.ibm.com/careers",
     "Intel": "https://jobs.intel.com",
     "AMD": "https://careers.amd.com",
     "Qualcomm": "https://www.qualcomm.com/company/careers",
