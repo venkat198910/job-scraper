@@ -61,6 +61,7 @@ def _enforce_total_experience(summary: str) -> str:
 def _clean_headline_role(job_title: str) -> str:
     title = re.sub(r"\([^)]*\)", " ", str(job_title or ""))
     title = re.sub(r"\[[^\]]*\]", " ", title)
+    title = re.sub(r"\s*[-–—|]\s*waters?\s+matters?\s*$", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\b(?:exp|experience)\s*[:\-]?\s*\d+\+?\s*(?:to|-)?\s*\d*\+?\s*(?:years?|yrs?)?\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\b(?:immediate joiner|remote work|hybrid|onsite|india|uae|dubai|bangalore|bengaluru)\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"[_|/]+", " ", title)
@@ -72,7 +73,7 @@ def _clean_headline_role(job_title: str) -> str:
         (r"\bplatform engineer\b", "Platform Engineer"),
         (r"\bcloud platform engineer\b", "Cloud Platform Engineer"),
         (r"\bcloud engineer\b", "Cloud Engineer"),
-        (r"\bdevsecops\b", "DevSecOps Engineer"),
+        (r"\bdev[\s-]*sec[\s-]*ops\b", "DevSecOps Engineer"),
         (r"\bdevops\b", "Senior DevOps Engineer"),
         (r"\bkubernetes\b", "Kubernetes Engineer"),
         (r"\brelease engineer\b", "Release Engineer"),
@@ -98,15 +99,15 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
     ).lower()
 
     theme_candidates = [
-        (("gcp", "google cloud", "gke"), "GCP Cloud"),
-        (("aws", "amazon web services", "eks"), "AWS Cloud"),
-        (("azure", "aks"), "Azure Cloud"),
+        (("aws", "amazon web services", "eks"), "AWS"),
+        (("gcp", "google cloud", "gke"), "GCP"),
+        (("azure", "aks"), "Azure"),
         (("kubernetes", "gke", "eks", "aks", "containers"), "Kubernetes"),
         (("terraform", "iac", "infrastructure as code"), "Terraform & IaC"),
         (("ci/cd", "cicd", "jenkins", "github actions", "gitlab ci"), "CI/CD Automation"),
         (("sre", "site reliability", "reliability"), "Reliability Engineering"),
         (("observability", "prometheus", "grafana", "monitoring"), "Observability"),
-        (("devsecops", "security", "vulnerability"), "DevSecOps"),
+        (("devsecops", "dev sec ops", "dev secops", "dev-sec-ops", "security", "vulnerability"), "DevSecOps"),
         (("docker", "container"), "Container Platforms"),
         (("platform",), "Platform Engineering"),
         (("automation", "ansible", "python"), "Infrastructure Automation"),
