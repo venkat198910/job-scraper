@@ -98,6 +98,9 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
         ]
     ).lower()
 
+    if re.search(r"\bsenior\b", haystack) and not re.search(r"\bsenior\b", role, re.IGNORECASE):
+        role = f"Senior {role}"
+
     theme_candidates = [
         (("aws", "amazon web services", "eks"), "AWS"),
         (("gcp", "google cloud", "gke"), "GCP"),
