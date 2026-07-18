@@ -10,6 +10,7 @@ import user_agents
 import supabase_utils
 from markdownify import markdownify as md
 import json
+import hashlib
 import os
 import re
 import tempfile
@@ -1917,7 +1918,11 @@ def _company_career_job_allowed(job_details: dict) -> bool:
 
 def _fetch_json(url: str) -> dict | list | None:
     try:
-        response = requests.get(url, timeout=app_settings.get_advanced_int("requestTimeout"))
+        response = requests.get(
+            url,
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+            headers={"User-Agent": _random_user_agent(), "Accept": "application/json,text/html;q=0.9,*/*;q=0.8"},
+        )
         if response.status_code == 404:
             logging.info("Career endpoint not found: %s", url)
             return None
@@ -2385,6 +2390,370 @@ def _fetch_jibe_api_jobs(target: dict) -> list[dict]:
             jobs.append(job_details)
     return jobs
 
+def _normalize_tasc_job(target: dict, job: dict) -> dict | None:
+    job_id = job.get("vincere_id") or job.get("id")
+    if not job_id:
+        return None
+    base_url = str(target.get("base_url") or "https://tascoutsourcing.com").rstrip("/")
+    job_url = f"{base_url}/en/jobs/detail/{job_id}/view"
+    description = convert_html_to_markdown(job.get("public_description") or job.get("description") or "")
+    raw_description = BeautifulSoup(job.get("public_description") or job.get("description") or "", "html.parser").get_text(" ", strip=True)
+    location = job.get("location") or job.get("location_name") or job.get("country_name") or ""
+    if not location:
+        location = next(
+            (keyword for keyword in getattr(config, "COMPANY_CAREER_LOCATION_KEYWORDS", []) if str(keyword).lower() in raw_description.lower()),
+            "",
+        )
+    return {
+        "job_id": f"tasc-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(job.get("job_title") or job.get("title")),
+        "location": _plain_text(location),
+        "level": _plain_text(job.get("employment_type") or job.get("job_type")),
+        "provider": "company_careers_tasc",
+        "description": description,
+        "posted_at": job.get("published_date") or job.get("created_date") or job.get("updated_at") or "",
+        "job_url": job_url,
+        "apply_url": job_url,
+        "career_url": target.get("career_url") or "",
+    }
+
+def _fetch_tasc_jobs(target: dict) -> list[dict]:
+    base_url = str(target.get("base_url") or "https://tascoutsourcing.com").rstrip("/")
+    jobs = []
+    seen_ids = set()
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        payload = _fetch_json(f"{base_url}/ajax/jobs?{urlencode({'page': 1, 'search_query': search_text})}")
+        if not isinstance(payload, dict):
+            continue
+        for job in payload.get("results", [])[:per_term_limit]:
+            if not isinstance(job, dict):
+                continue
+            details = _normalize_tasc_job(target, job)
+            if details and details["job_id"] not in seen_ids:
+                seen_ids.add(details["job_id"])
+                jobs.append(details)
+    return jobs
+
+def _normalize_manatal_job(target: dict, job: dict) -> dict | None:
+    job_hash = job.get("hash") or job.get("id")
+    if not job_hash:
+        return None
+    slug = target.get("slug")
+    job_url = f"https://careers-page.com/{slug}/job/{job_hash}"
+    return {
+        "job_id": f"manatal-{slug}-{job_hash}",
+        "company": target.get("name"),
+        "job_title": _plain_text(job.get("position_name")),
+        "location": _plain_text(job.get("location_display") or ", ".join(part for part in [job.get("city"), job.get("country")] if part)),
+        "level": _plain_text(job.get("contract_details")),
+        "provider": "company_careers_manatal",
+        "description": convert_html_to_markdown(job.get("description") or ""),
+        # Manatal's public career-page response does not expose a posting date.
+        # Record when the still-open vacancy was observed so it can pass the
+        # same expiry pipeline as sources that publish timestamps.
+        "posted_at": job.get("created_at") or job.get("published_at") or datetime.now(timezone.utc).isoformat(),
+        "job_url": job_url,
+        "apply_url": job_url,
+        "career_url": target.get("career_url") or "",
+    }
+
+def _fetch_manatal_jobs(target: dict) -> list[dict]:
+    slug = target.get("slug")
+    if not slug:
+        return []
+    jobs = []
+    seen_ids = set()
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        query = urlencode({"search": search_text, "page_size": per_term_limit})
+        payload = _fetch_json(f"https://api.manatal.com/open/v3/career-page/{slug}/jobs/?{query}")
+        if not isinstance(payload, dict):
+            continue
+        for job in payload.get("results", []):
+            if not isinstance(job, dict):
+                continue
+            details = _normalize_manatal_job(target, job)
+            if details and details["job_id"] not in seen_ids:
+                seen_ids.add(details["job_id"])
+                jobs.append(details)
+    return jobs
+
+def _fetch_oracle_jobs(target: dict) -> list[dict]:
+    host = target.get("host")
+    site = target.get("site")
+    if not host or not site:
+        return []
+    jobs = []
+    seen_ids = set()
+    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    expand = "requisitionList.workLocation,requisitionList.otherWorkLocations,requisitionList.secondaryLocations"
+    for search_text in search_terms:
+        finder = f"findReqs;siteNumber={site},limit={per_term_limit},offset=0,keyword={search_text}"
+        query = urlencode({"onlyData": "true", "expand": expand, "finder": finder})
+        payload = _fetch_json(f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions?{query}")
+        if not isinstance(payload, dict):
+            continue
+        for result in payload.get("items", []):
+            requisitions = result.get("requisitionList", []) if isinstance(result, dict) else []
+            for job in requisitions:
+                if not isinstance(job, dict) or not job.get("Id"):
+                    continue
+                job_id = str(job["Id"])
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                work_locations = job.get("workLocation") if isinstance(job.get("workLocation"), list) else []
+                location = job.get("PrimaryLocation") or (work_locations[0].get("LocationName") if work_locations else "")
+                job_url = f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{job_id}"
+                jobs.append({
+                    "job_id": f"oracle-{host}-{site}-{job_id}",
+                    "company": target.get("name"),
+                    "job_title": _plain_text(job.get("Title")),
+                    "location": _plain_text(location),
+                    "level": _plain_text(job.get("JobType") or job.get("ContractType") or job.get("JobSchedule")),
+                    "provider": "company_careers_oracle",
+                    "description": _plain_text(job.get("ShortDescriptionStr") or job.get("ExternalResponsibilitiesStr") or job.get("ExternalQualificationsStr")),
+                    "posted_at": job.get("PostedDate") or "",
+                    "job_url": job_url,
+                    "apply_url": job_url,
+                    "career_url": target.get("career_url") or "",
+                })
+    return jobs
+
+def _fetch_wordpress_jobs(target: dict) -> list[dict]:
+    base_url = str(target.get("base_url") or "").rstrip("/")
+    rest_type = target.get("rest_type")
+    if not base_url or not rest_type:
+        return []
+    jobs = []
+    seen_ids = set()
+    per_term_limit = min(100, int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10))
+    search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    for search_text in search_terms:
+        query = urlencode({"per_page": per_term_limit, "search": search_text})
+        payload = _fetch_json(f"{base_url}/wp-json/wp/v2/{rest_type}?{query}")
+        if not isinstance(payload, list):
+            continue
+        for job in payload:
+            if not isinstance(job, dict) or not job.get("id"):
+                continue
+            job_id = str(job["id"])
+            if job_id in seen_ids:
+                continue
+            seen_ids.add(job_id)
+            title_value = job.get("title")
+            title = title_value.get("rendered") if isinstance(title_value, dict) else title_value
+            content_value = job.get("content")
+            content = content_value.get("rendered") if isinstance(content_value, dict) else content_value
+            plain_content = BeautifulSoup(content or "", "html.parser").get_text("\n", strip=True)
+            location_match = re.search(r"(?:Job\s+)?Location\s*:\s*([^\n|]+)", plain_content, re.IGNORECASE)
+            location = _plain_text(location_match.group(1)) if location_match else ""
+            slug = job.get("slug") or job_id
+            job_url = job.get("link") or urljoin(base_url, str(target.get("job_path") or "/jobs/{slug}/").format(slug=slug))
+            jobs.append({
+                "job_id": f"wordpress-{rest_type}-{job_id}",
+                "company": target.get("name"),
+                "job_title": _plain_text(title),
+                "location": location,
+                "level": "",
+                "provider": "company_careers_wordpress",
+                "description": convert_html_to_markdown(content or ""),
+                "posted_at": job.get("date_gmt") or job.get("date") or "",
+                "job_url": job_url,
+                "apply_url": job_url,
+                "career_url": target.get("career_url") or "",
+            })
+    return jobs
+
+def _fetch_volcanic_jobs(target: dict) -> list[dict]:
+    base_url = str(target.get("base_url") or "").rstrip("/")
+    if not base_url:
+        return []
+    payload = _fetch_json(f"{base_url}/en/api/v1/jobs")
+    if not isinstance(payload, dict):
+        return []
+    jobs = []
+    for job in payload.get("jobs", []):
+        if not isinstance(job, dict) or not job.get("id"):
+            continue
+        description_html = job.get("description") or job.get("clean_description") or ""
+        plain_description = BeautifulSoup(description_html, "html.parser").get_text("\n", strip=True)
+        location = job.get("job_location") or ""
+        location_match = re.search(r"(?:Job\s+)?Location\s*:\s*([^\n|]+)", plain_description, re.IGNORECASE)
+        if location_match:
+            location = location_match.group(1)
+        slug = job.get("cached_slug") or job.get("id")
+        job_url = urljoin(base_url, str(target.get("job_path") or "/job/{slug}").format(slug=slug))
+        jobs.append({
+            "job_id": f"volcanic-{target.get('name', '').lower().replace(' ', '-')}-{job['id']}",
+            "company": target.get("name"),
+            "job_title": _plain_text(job.get("job_title") or job.get("title")),
+            "location": _plain_text(location),
+            "level": _plain_text(job.get("job_type")),
+            "provider": "company_careers_volcanic",
+            "description": convert_html_to_markdown(description_html) if "<" in str(description_html) else _plain_text(description_html),
+            "posted_at": job.get("published_at") or job.get("created_at") or datetime.now(timezone.utc).isoformat(),
+            "job_url": job_url,
+            "apply_url": job_url,
+            "career_url": target.get("career_url") or "",
+        })
+    return jobs
+
+def _find_job_posting_json_ld(soup: BeautifulSoup) -> dict | None:
+    def walk(value):
+        if isinstance(value, dict):
+            job_type = value.get("@type")
+            if job_type == "JobPosting" or isinstance(job_type, list) and "JobPosting" in job_type:
+                return value
+            for child in value.values():
+                found = walk(child)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = walk(child)
+                if found:
+                    return found
+        return None
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        try:
+            found = walk(json.loads(script.string or script.get_text() or ""))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if found:
+            return found
+    return None
+
+def _json_ld_location(value) -> str:
+    if isinstance(value, list):
+        return ", ".join(filter(None, (_json_ld_location(item) for item in value)))
+    if not isinstance(value, dict):
+        return _plain_text(value)
+    address = value.get("address") if isinstance(value.get("address"), dict) else value
+    return ", ".join(
+        _plain_text(address.get(key))
+        for key in ("addressLocality", "addressRegion", "addressCountry")
+        if _plain_text(address.get(key))
+    ) or _plain_text(value.get("name"))
+
+def _fetch_html_job_detail(target: dict, job_url: str, listing_title: str) -> dict | None:
+    try:
+        response = requests.get(
+            job_url,
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+            headers={"User-Agent": _random_user_agent(), "Accept-Language": "en-US,en;q=0.9"},
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Career job detail request failed for %s: %s", job_url, exc)
+        return None
+    soup = BeautifulSoup(response.text, "html.parser")
+    posting = _find_job_posting_json_ld(soup) or {}
+    title_node = soup.select_one("h1")
+    description_node = soup.select_one(target.get("description_selector") or "main, article, .job-description, .description")
+    description = posting.get("description") or (str(description_node) if description_node else "")
+    title = posting.get("title") or listing_title or (title_node.get_text(" ", strip=True) if title_node else "")
+    if not title or not description:
+        return None
+    identifier = posting.get("identifier")
+    if isinstance(identifier, dict):
+        identifier = identifier.get("value") or identifier.get("name")
+    job_id = identifier or hashlib.sha256(job_url.encode("utf-8")).hexdigest()[:20]
+    location = _json_ld_location(posting.get("jobLocation"))
+    page_text = soup.get_text("\n", strip=True)
+    if not location:
+        location_match = re.search(r"(?:Job\s+)?Location\s*:\s*([^\n|]+)", page_text, re.IGNORECASE)
+        location = _plain_text(location_match.group(1)) if location_match else ""
+    posted_at = posting.get("datePosted") or ""
+    if not posted_at:
+        published_meta = soup.select_one('meta[property="article:published_time"], meta[name="date"], time[datetime]')
+        if published_meta:
+            posted_at = published_meta.get("content") or published_meta.get("datetime") or ""
+    if not posted_at:
+        posted_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "job_id": f"html-{target.get('name', '').lower().replace(' ', '-')}-{job_id}",
+        "company": target.get("name"),
+        "job_title": _plain_text(title),
+        "location": location,
+        "level": _plain_text(posting.get("employmentType")),
+        "provider": "company_careers_html",
+        "description": convert_html_to_markdown(description) if "<" in str(description) else _plain_text(description),
+        "posted_at": posted_at,
+        "job_url": job_url,
+        "apply_url": posting.get("url") or job_url,
+        "career_url": target.get("career_url") or "",
+    }
+
+def _fetch_html_jobs(target: dict) -> list[dict]:
+    list_url = target.get("list_url") or target.get("career_url")
+    link_pattern = target.get("job_link_pattern")
+    if not list_url or not link_pattern:
+        return []
+    try:
+        response = requests.get(
+            list_url,
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+            headers={"User-Agent": _random_user_agent(), "Accept-Language": "en-US,en;q=0.9"},
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Career list request failed for %s: %s", list_url, exc)
+        return []
+    soup = BeautifulSoup(response.text, "html.parser")
+    candidates = []
+    seen_urls = set()
+    for link in soup.select("a[href]"):
+        job_url = urljoin(list_url, link.get("href") or "")
+        if job_url in seen_urls or not re.search(str(link_pattern), job_url, re.IGNORECASE):
+            continue
+        seen_urls.add(job_url)
+        listing_title = _plain_text(link.get_text(" ", strip=True))
+        context_text = ""
+        parent = link.parent
+        while parent and len(context_text) < 80:
+            context_text = _plain_text(parent.get_text("\n", strip=True))
+            parent = parent.parent
+        candidates.append((job_url, listing_title, context_text[:4000]))
+    max_details = int(target.get("max_detail_pages") or 50)
+    title_keywords = getattr(config, "COMPANY_CAREER_TITLE_KEYWORDS", [])
+    matching_candidates = [
+        candidate
+        for candidate in candidates
+        if not candidate[1] or any(str(keyword).lower() in candidate[1].lower() for keyword in title_keywords)
+    ]
+    jobs = []
+    for job_url, listing_title, context_text in matching_candidates[:max_details]:
+        details = _fetch_html_job_detail(target, job_url, listing_title)
+        if not details and listing_title and context_text:
+            location_match = re.search(r"(?:Job\s+)?Location\s*:\s*([^\n|]+)", context_text, re.IGNORECASE)
+            location = _plain_text(location_match.group(1)) if location_match else next(
+                (keyword for keyword in getattr(config, "COMPANY_CAREER_LOCATION_KEYWORDS", []) if str(keyword).lower() in context_text.lower()),
+                "",
+            )
+            details = {
+                "job_id": f"html-{target.get('name', '').lower().replace(' ', '-')}-{hashlib.sha256(job_url.encode('utf-8')).hexdigest()[:20]}",
+                "company": target.get("name"),
+                "job_title": listing_title,
+                "location": _plain_text(location),
+                "level": "",
+                "provider": "company_careers_html",
+                "description": context_text,
+                "posted_at": datetime.now(timezone.utc).isoformat(),
+                "job_url": job_url,
+                "apply_url": job_url,
+                "career_url": target.get("career_url") or "",
+            }
+        if details:
+            jobs.append(details)
+    return jobs
+
 def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
     ats = str(target.get("ats") or "").lower()
     if ats == "greenhouse":
@@ -2401,6 +2770,18 @@ def _fetch_company_career_target_jobs(target: dict) -> list[dict]:
         return _fetch_jibe_jobs(target)
     if ats == "jibe_api":
         return _fetch_jibe_api_jobs(target)
+    if ats == "tasc":
+        return _fetch_tasc_jobs(target)
+    if ats == "manatal":
+        return _fetch_manatal_jobs(target)
+    if ats == "oracle":
+        return _fetch_oracle_jobs(target)
+    if ats == "wordpress":
+        return _fetch_wordpress_jobs(target)
+    if ats == "volcanic":
+        return _fetch_volcanic_jobs(target)
+    if ats == "html":
+        return _fetch_html_jobs(target)
     logging.info("Unsupported company career ATS '%s' for %s", ats, target.get("name"))
     return []
 

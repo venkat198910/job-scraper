@@ -404,6 +404,40 @@ COMPANY_CAREER_TARGETS = [
         "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
     },
 
+    # UAE recruitment agencies requested by the user. Prefer their public job
+    # feeds where available; the HTML targets parse linked job detail pages.
+    {
+        "name": "TASC Outsourcing",
+        "career_url": "https://tascoutsourcing.com/en/vacancies?query=DevOps&page=1",
+        "ats": "tasc",
+        "base_url": "https://tascoutsourcing.com",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {
+        "name": "Caliberly",
+        "career_url": "https://careers-page.com/caliberly#openings",
+        "ats": "manatal",
+        "slug": "caliberly",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {
+        "name": "Emaar Hospitality Group",
+        "career_url": "https://emhm.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs?keyword=DevOps&location=United+Arab+Emirates&locationId=300000000346209&locationLevel=country&mode=location",
+        "ats": "oracle",
+        "host": "emhm.fa.em2.oraclecloud.com",
+        "site": "CX_1001",
+        "location_id": "300000000346209",
+        "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+    },
+    {"name": "Agile Consultants", "ats": "html", "career_url": "https://www.agileconsultants.ae/jobs", "list_url": "https://www.agileconsultants.ae/jobs", "job_link_pattern": r"/jobs/(?!$)[^/#?]+$"},
+    {"name": "Michael Page UAE", "ats": "html", "career_url": "https://www.michaelpage.ae/jobs/technology", "list_url": "https://www.michaelpage.ae/jobs/technology", "job_link_pattern": r"/job-detail/"},
+    {"name": "AIQU", "ats": "html", "career_url": "https://aiqusolutions.com/vacancies", "list_url": "https://aiqusolutions.com/vacancies", "job_link_pattern": r"/vacancies/(?!$)[^/#?]+$"},
+    {"name": "RFS HR Consultancy", "ats": "wordpress", "career_url": "https://rfsonshr.com/jobs/", "base_url": "https://rfsonshr.com", "rest_type": "jobs", "job_path": "/jobs/{slug}/"},
+    {"name": "ManpowerGroup UAE", "ats": "volcanic", "career_url": "https://www.manpowergroup.ae/jobs", "base_url": "https://www.manpowergroup.ae", "job_path": "/job/{slug}"},
+    {"name": "Adecco UAE", "ats": "html", "career_url": "https://www.adecco.com/en-ae/middle-east-jobs", "list_url": "https://www.adecco.com/en-ae/middle-east-jobs", "job_link_pattern": r"/en-ae/(?:job|jobs)/|/en-ae/middle-east-jobs/[^/#?]+"},
+    {"name": "Salt UAE", "ats": "html", "career_url": "https://welovesalt.com/jobs", "list_url": "https://welovesalt.com/jobs", "job_link_pattern": r"/jobs/(?!$)[^/#?]+/?$"},
+    {"name": "Marc Ellis", "ats": "wordpress", "career_url": "https://www.marc-ellis.com/jobs/", "base_url": "https://www.marc-ellis.com", "rest_type": "job-listings", "job_path": "/jobs/{slug}/"},
+
     # Greenhouse boards commonly used by product/platform companies.
     {"name": "Airbnb", "ats": "greenhouse", "slug": "airbnb"},
     {"name": "Anduril", "ats": "greenhouse", "slug": "andurilindustries"},
@@ -500,6 +534,17 @@ SERVICE_BASED_COMPANY_CAREER_PAGE_URLS = {
 # incremental connector coverage.
 COMPANY_CAREER_PAGE_URLS = {
     **SERVICE_BASED_COMPANY_CAREER_PAGE_URLS,
+    "TASC Outsourcing": "https://tascoutsourcing.com/en/vacancies?query=DevOps&page=1",
+    "Caliberly": "https://careers-page.com/caliberly#openings",
+    "Agile Consultants": "https://www.agileconsultants.ae/jobs",
+    "Michael Page UAE": "https://www.michaelpage.ae/jobs/technology",
+    "AIQU": "https://aiqusolutions.com/vacancies",
+    "Emaar Hospitality Group": "https://emhm.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs?keyword=DevOps&location=United+Arab+Emirates&locationId=300000000346209&locationLevel=country&mode=location",
+    "RFS HR Consultancy": "https://rfsonshr.com/jobs/",
+    "ManpowerGroup UAE": "https://www.manpowergroup.ae/jobs",
+    "Adecco UAE": "https://www.adecco.com/en-ae/middle-east-jobs",
+    "Salt UAE": "https://welovesalt.com/jobs",
+    "Marc Ellis": "https://www.marc-ellis.com/jobs/",
     "CBA India Services Private Limited": "https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers?q=DevOps&locationCountry=c4f78be1a8f14da0ab49ce1162348a5e&hiringCompany=007f52aebee601634bb894dc0d370187",
     "Lloyds": "https://lbg.wd3.myworkdayjobs.com/en-US/Lloyds_Technology_Centre?q=DevOps+Engineer",
     "Deloitte US": "https://apply.deloitte.com/en_US/careers/SearchJobs",
