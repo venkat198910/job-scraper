@@ -310,6 +310,14 @@ COMPANY_CAREER_JOBS_PER_TERM = 10
 COMPANY_CAREER_TARGETS_PER_RUN = 40
 
 COMPANY_CAREER_TARGETS = [
+    {
+        "name": "Synopsys",
+        "career_url": "https://careers.synopsys.com/search-jobs",
+        "ats": "html",
+        "list_url": "https://careers.synopsys.com/search-jobs?k=Site%20Reliability",
+        "job_link_pattern": r"/job/[^/]+/[^/]+/\d+/\d+/?$",
+        "max_detail_pages": 50,
+    },
     # User-priority Workday career pages.
     {
         "name": "CBA India Services Private Limited",
@@ -491,6 +499,15 @@ COMPANY_CAREER_TARGETS = [
     {"name": "Linear", "ats": "ashby", "slug": "linear"},
     {"name": "Perplexity", "ats": "ashby", "slug": "perplexity"},
 ]
+
+# Direct posting URLs that repair known legacy records where only a company's
+# career homepage was stored. Keys are normalized company/title pairs.
+DIRECT_JOB_URL_OVERRIDES = {
+    (
+        "synopsys",
+        "senior staff site reliability engineer",
+    ): "https://careers.synopsys.com/job/bengaluru/senior-staff-site-reliability-engineer/44408/95947919824",
+}
 
 # Official career pages for 30 major IT services and consulting companies.
 # ATS-backed entries are also added to COMPANY_CAREER_TARGETS when the site has

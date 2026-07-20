@@ -88,6 +88,18 @@ def linkedin_job_url(job_id: str) -> str:
     return f"https://www.linkedin.com/jobs/view/{job_id}"
 
 
+def _direct_job_url_override(job: dict[str, Any], current_url: str = "") -> str:
+    parsed = urlparse(current_url) if current_url else None
+    if parsed and parsed.netloc.lower() == "careers.synopsys.com" and parsed.path.rstrip("/"):
+        return ""
+
+    company = _dedupe_text(str(job.get("company") or ""))
+    company = re.sub(r"\s+(?:inc|incorporated|ltd|limited)$", "", company).strip()
+    title = _dedupe_text(str(job.get("job_title") or ""))
+    overrides = getattr(config, "DIRECT_JOB_URL_OVERRIDES", {})
+    return str(overrides.get((company, title)) or "").strip()
+
+
 def _target_career_url(target: dict[str, Any]) -> str:
     career_url = str(target.get("career_url") or "").strip()
     if career_url:
@@ -214,6 +226,9 @@ def build_apply_url(job: dict[str, Any]) -> str:
         or job.get("career_url")
         or ""
     ).strip()
+    override_url = _direct_job_url_override(job, explicit_url)
+    if override_url:
+        return override_url
     if explicit_url:
         return explicit_url
     if provider.startswith("company_careers"):
