@@ -271,9 +271,19 @@ async def delete_old_inactive_jobs():
     """Permanently deletes very old inactive jobs."""
     logging.info("--- Starting Task: Delete Old Inactive Jobs ---")
     job_deletion_days = app_settings.get_advanced_int("jobDeletionDays")
-    applied_retention_days = app_settings.get_advanced_int("appliedJobRetentionDays")
+    try:
+        applied_retention_days = app_settings.get_persisted_advanced_int("appliedJobRetentionDays")
+    except app_settings.SettingsUnavailableError as exc:
+        applied_retention_days = None
+        logging.error(
+            "Applied retention setting could not be loaded from the UI; "
+            "applied/interviewing jobs will not be deleted: %s",
+            exc,
+        )
     delete_older_than_date = get_past_date(job_deletion_days)
-    applied_delete_older_than_date = get_past_date(applied_retention_days)
+    applied_delete_older_than_date = (
+        get_past_date(applied_retention_days) if applied_retention_days is not None else None
+    )
     inactive_states = ['expired', 'removed']
     protected_statuses = {'applied', 'offer', 'offered', 'interviewing'}
 
@@ -290,6 +300,9 @@ async def delete_old_inactive_jobs():
             status = (job.get("status") or "").lower()
 
             if status in protected_statuses:
+                if applied_delete_older_than_date is None:
+                    protected_applied_count += 1
+                    continue
                 application_date = _parse_job_timestamp(job.get("application_date"))
                 if not application_date or application_date >= applied_delete_older_than_date:
                     protected_applied_count += 1
@@ -303,11 +316,17 @@ async def delete_old_inactive_jobs():
                 jobs_to_delete.append(job["job_id"])
 
         if protected_applied_count:
-            logging.info(
-                "Kept %s applied/interviewing inactive jobs for the %s day retention window.",
-                protected_applied_count,
-                applied_retention_days,
-            )
+            if applied_retention_days is None:
+                logging.info(
+                    "Kept %s applied/interviewing inactive jobs because the UI retention setting was unavailable.",
+                    protected_applied_count,
+                )
+            else:
+                logging.info(
+                    "Kept %s applied/interviewing inactive jobs for the %s day retention window.",
+                    protected_applied_count,
+                    applied_retention_days,
+                )
 
         if not jobs_to_delete:
             logging.info("No old inactive jobs found to delete.")
@@ -328,10 +347,10 @@ async def delete_old_inactive_jobs():
 
         if deleted_count > 0:
             logging.info(
-                "Successfully deleted %s inactive jobs. Non-applied threshold=%s days, applied threshold=%s days.",
+                "Successfully deleted %s inactive jobs. Non-applied threshold=%s days, applied threshold=%s.",
                 deleted_count,
                 job_deletion_days,
-                applied_retention_days,
+                f"{applied_retention_days} days" if applied_retention_days is not None else "disabled (UI unavailable)",
             )
         else:
             logging.info("No old inactive jobs found to delete.")

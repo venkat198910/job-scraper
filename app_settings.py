@@ -155,6 +155,12 @@ DEFAULT_SETTINGS = {
 }
 
 _cached_settings: dict[str, Any] | None = None
+
+
+class SettingsUnavailableError(RuntimeError):
+    """Raised when a destructive task cannot read persisted UI settings."""
+
+
 JOB_TYPE_VALUES = {"F", "C", "P", "T", "I"}
 POSTING_DATE_VALUES = {
     "r3600",
@@ -375,6 +381,54 @@ def _download_storage_settings(supabase_utils: Any) -> dict[str, Any]:
     except Exception as exc:
         logging.info("Settings storage fallback unavailable; using defaults: %s", exc)
         return DEFAULT_SETTINGS
+
+
+def _load_persisted_settings() -> dict[str, Any]:
+    """Load raw UI settings without substituting code defaults."""
+    import supabase_utils
+
+    table_error: Exception | None = None
+    try:
+        response = (
+            supabase_utils.supabase.table(SETTINGS_TABLE)
+            .select("settings")
+            .eq("id", SETTINGS_ID)
+            .limit(1)
+            .execute()
+        )
+        if response.data and isinstance(response.data[0].get("settings"), dict):
+            return response.data[0]["settings"]
+    except Exception as exc:
+        table_error = exc
+
+    try:
+        file_bytes = (
+            supabase_utils.supabase.storage.from_(SETTINGS_STORAGE_BUCKET)
+            .download(SETTINGS_STORAGE_PATH)
+        )
+        raw_text = file_bytes if isinstance(file_bytes, str) else bytes(file_bytes).decode("utf-8")
+        settings = json.loads(raw_text)
+        if isinstance(settings, dict):
+            return settings
+        raise ValueError("stored settings are not a JSON object")
+    except Exception as storage_exc:
+        detail = f"table={table_error}; storage={storage_exc}"
+        raise SettingsUnavailableError(f"Persisted UI settings are unavailable ({detail})") from storage_exc
+
+
+def get_persisted_advanced_int(key: str) -> int:
+    """Read a required advanced value from persisted UI settings only."""
+    settings = _load_persisted_settings()
+    advanced = settings.get("advanced")
+    if not isinstance(advanced, dict) or key not in advanced:
+        raise SettingsUnavailableError(f"Persisted UI setting advanced.{key} is missing")
+    try:
+        value = int(advanced[key])
+    except (TypeError, ValueError) as exc:
+        raise SettingsUnavailableError(f"Persisted UI setting advanced.{key} is invalid") from exc
+    if value < 1 or value > 3650:
+        raise SettingsUnavailableError(f"Persisted UI setting advanced.{key} is out of range")
+    return value
 
 
 def get_enabled_scraping_sources() -> list[str]:
