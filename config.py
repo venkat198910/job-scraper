@@ -875,7 +875,7 @@ JOB_CHECK_DAYS = 3
 JOB_DELETION_DAYS = 60
 
 # Keep applied jobs visible before allowing inactive cleanup to remove them.
-APPLIED_JOB_RETENTION_DAYS = 30
+APPLIED_JOB_RETENTION_DAYS = 50
 
 JOB_CHECK_LIMIT = 50
 

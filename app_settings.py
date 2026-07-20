@@ -132,7 +132,7 @@ DEFAULT_SETTINGS = {
         "jobExpiryDays": getattr(config, "JOB_EXPIRY_DAYS", 7),
         "jobCheckDays": getattr(config, "JOB_CHECK_DAYS", 3),
         "jobDeletionDays": getattr(config, "JOB_DELETION_DAYS", 60),
-        "appliedJobRetentionDays": getattr(config, "APPLIED_JOB_RETENTION_DAYS", 30),
+        "appliedJobRetentionDays": getattr(config, "APPLIED_JOB_RETENTION_DAYS", 50),
         "jobCheckLimit": getattr(config, "JOB_CHECK_LIMIT", 50),
         "activeCheckTimeout": getattr(config, "ACTIVE_CHECK_TIMEOUT", 20),
         "activeCheckMaxRetries": getattr(config, "ACTIVE_CHECK_MAX_RETRIES", 2),
