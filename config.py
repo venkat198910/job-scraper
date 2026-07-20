@@ -506,7 +506,7 @@ DIRECT_JOB_URL_OVERRIDES = {
     (
         "synopsys",
         "senior staff site reliability engineer",
-    ): "https://careers.synopsys.com/job/bengaluru/senior-staff-site-reliability-engineer/44408/95947919824",
+    ): "https://synopsys.avature.net/careers/Login?formValues=&jobId=17592&source=&tags=&user=",
 }
 
 # Official career pages for 30 major IT services and consulting companies.

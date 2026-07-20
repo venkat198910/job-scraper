@@ -89,15 +89,16 @@ def linkedin_job_url(job_id: str) -> str:
 
 
 def _direct_job_url_override(job: dict[str, Any], current_url: str = "") -> str:
-    parsed = urlparse(current_url) if current_url else None
-    if parsed and parsed.netloc.lower() == "careers.synopsys.com" and parsed.path.rstrip("/"):
-        return ""
-
     company = _dedupe_text(str(job.get("company") or ""))
     company = re.sub(r"\s+(?:inc|incorporated|ltd|limited)$", "", company).strip()
     title = _dedupe_text(str(job.get("job_title") or ""))
     overrides = getattr(config, "DIRECT_JOB_URL_OVERRIDES", {})
-    return str(overrides.get((company, title)) or "").strip()
+    override = str(overrides.get((company, title)) or "").strip()
+    if not override or not current_url:
+        return override
+
+    parsed = urlparse(current_url)
+    return override if parsed.netloc.lower() == "careers.synopsys.com" else ""
 
 
 def _target_career_url(target: dict[str, Any]) -> str:
