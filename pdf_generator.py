@@ -597,7 +597,7 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
     certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
     if certifications:
         y = _draw_reference_section(pdf, "Certifications", margin, y, content_width)
-        for cert in certifications[:2]:
+        for cert in certifications[:3]:
             item = _clean_text(cert.name)
             issuer = _clean_text(cert.issuer) if _has_value(cert.issuer) else ""
             if issuer and issuer.lower() != item.lower():

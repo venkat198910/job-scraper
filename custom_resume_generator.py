@@ -21,7 +21,7 @@ import app_settings
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-CUSTOM_RESUME_TOTAL_EXPERIENCE = "9+ years"
+CUSTOM_RESUME_TOTAL_EXPERIENCE = "around 10 years"
 
 
 def _configured_total_experience_phrase() -> str:

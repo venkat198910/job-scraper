@@ -74,11 +74,34 @@ def _new_resume_path(record: dict, job_metadata: dict | None = None) -> str:
     )
 
 
+def _fetch_current_profile_certifications() -> list:
+    base_resume = supabase_utils.get_base_resume()
+    if not base_resume:
+        logging.warning(
+            "Current base resume is unavailable; existing customized-resume certifications will be preserved."
+        )
+        return []
+
+    try:
+        return Resume.model_validate(base_resume).certifications
+    except Exception as exc:
+        logging.warning(
+            "Current base-resume certifications could not be parsed; existing values will be preserved: %s",
+            exc,
+        )
+        return []
+
+
 def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bool = False) -> tuple[int, int]:
     records = _fetch_customized_resumes(limit=limit)
     logging.info("Found %s customized resume record(s).", len(records))
     job_metadata_by_resume_id = _fetch_job_metadata_by_resume_id()
     logging.info("Found job metadata for %s customized resume record(s).", len(job_metadata_by_resume_id))
+    profile_certifications = _fetch_current_profile_certifications()
+    logging.info(
+        "Loaded %s certification(s) from the current profile for existing resume regeneration.",
+        len(profile_certifications),
+    )
 
     updated = 0
     failed = 0
@@ -86,6 +109,11 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
         resume_id = record.get("id")
         try:
             resume_data = Resume.model_validate(record)
+            if profile_certifications:
+                resume_data.certifications = [
+                    certification.model_copy(deep=True)
+                    for certification in profile_certifications
+                ]
             resume_data.summary = _enforce_total_experience(resume_data.summary)
             job_metadata = job_metadata_by_resume_id.get(str(resume_id), {})
             resume_data.professional_title = build_professional_title(job_metadata, resume_data)
@@ -103,7 +131,16 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
 
             response = (
                 supabase_utils.supabase.table(config.SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME)
-                .update({"resume_link": uploaded_path, "summary": resume_data.summary})
+                .update(
+                    {
+                        "resume_link": uploaded_path,
+                        "summary": resume_data.summary,
+                        "certifications": [
+                            certification.model_dump(exclude_none=True)
+                            for certification in resume_data.certifications
+                        ],
+                    }
+                )
                 .eq("id", resume_id)
                 .execute()
             )
