@@ -8,6 +8,12 @@ on:
         required: true
         type: boolean
         default: false
+  push:
+    branches:
+      - enhancement
+    paths:
+      - ".github/backfill/regenerate-custom-resumes.txt"
+      - ".github/workflows/regenerate_existing_resumes.yml"
 
 permissions:
   contents: read
@@ -18,7 +24,7 @@ concurrency:
 
 jobs:
   regenerate:
-    if: ${{ inputs.confirm }}
+    if: ${{ github.event_name == 'push' || inputs.confirm }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
