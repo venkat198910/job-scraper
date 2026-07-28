@@ -61,7 +61,10 @@ def _enforce_total_experience(summary: str) -> str:
 def _clean_headline_role(job_title: str) -> str:
     title = re.sub(r"\([^)]*\)", " ", str(job_title or ""))
     title = re.sub(r"\[[^\]]*\]", " ", title)
+    title = re.split(r"\s*\|\s*", title, maxsplit=1)[0]
     title = re.sub(r"\s*[-–—|]\s*waters?\s+matters?\s*$", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b(?:associate\s+vice\s+president|vice\s+president|avp|vp)\b", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bL\d?\b\s*$", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\b(?:exp|experience)\s*[:\-]?\s*\d+\+?\s*(?:to|-)?\s*\d*\+?\s*(?:years?|yrs?)?\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\b(?:immediate joiner|remote work|hybrid|onsite|india|uae|dubai|bangalore|bengaluru)\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"[_|/]+", " ", title)
