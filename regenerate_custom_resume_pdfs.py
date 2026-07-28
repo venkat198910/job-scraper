@@ -164,7 +164,12 @@ def main() -> int:
 
     updated, failed = regenerate_existing_custom_resume_pdfs(limit=args.limit, dry_run=args.dry_run)
     logging.info("Finished. updated=%s failed=%s", updated, failed)
-    return 1 if failed else 0
+    if failed:
+        logging.warning(
+            "Completed with %s failed record(s). Successfully updated records are already patched.",
+            failed,
+        )
+    return 0 if updated else 1
 
 
 if __name__ == "__main__":
