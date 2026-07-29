@@ -819,6 +819,39 @@ COMPANY_CAREER_PAGE_URLS = {
     "Ather Energy": "https://www.atherenergy.com/careers",
 }
 
+CATALOG_COMPANY_CAREER_JOB_LINK_PATTERN = (
+    r"/(?:job|jobs|careers|career|positions|openings|opportunities|vacancy|vacancies)"
+    r"(?:/|[?#-]).+"
+)
+
+
+def _catalog_company_career_targets() -> list[dict]:
+    configured_names = {
+        str(target.get("name") or "").strip().lower()
+        for target in COMPANY_CAREER_TARGETS
+        if isinstance(target, dict)
+    }
+    targets: list[dict] = []
+    for name, career_url in COMPANY_CAREER_PAGE_URLS.items():
+        if str(name).strip().lower() in configured_names:
+            continue
+        targets.append(
+            {
+                "name": name,
+                "ats": "html",
+                "career_url": career_url,
+                "list_url": career_url,
+                "job_link_pattern": CATALOG_COMPANY_CAREER_JOB_LINK_PATTERN,
+                "max_detail_pages": 1,
+            }
+        )
+    return targets
+
+
+COMPANY_CAREER_TARGETS.extend(_catalog_company_career_targets())
+COMPANY_CAREER_TARGET_LIMIT = len(COMPANY_CAREER_TARGETS)
+COMPANY_CAREER_TARGETS_PER_RUN = 0
+
 # =================================================================
 # PROCESSING LIMITS
 # =================================================================
