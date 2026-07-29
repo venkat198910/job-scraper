@@ -73,20 +73,22 @@ def _clean_headline_role(job_title: str) -> str:
     lowered = title.lower()
     role_map = [
         (r"\bsite reliability engineer\b|\bsre\b", "Site Reliability Engineer"),
-        (r"\bplatform engineer\b", "Platform Engineer"),
-        (r"\bcloud platform engineer\b", "Cloud Platform Engineer"),
-        (r"\bcloud engineer\b", "Cloud Engineer"),
+        (r"\bplatform engineer\b", "Senior Platform Engineer"),
+        (r"\bcloud platform engineer\b", "Senior Platform Engineer"),
+        (r"\bcloud engineer\b", "Senior Platform Engineer"),
         (r"\bdev[\s-]*sec[\s-]*ops\b", "DevSecOps Engineer"),
         (r"\bdevops\b", "Senior DevOps Engineer"),
-        (r"\bkubernetes\b", "Kubernetes Engineer"),
-        (r"\brelease engineer\b", "Release Engineer"),
-        (r"\binfrastructure\b", "Infrastructure Engineer"),
+        (r"\bkubernetes\b", "Senior Platform Engineer"),
+        (r"\brelease engineer\b", "Senior DevOps Engineer"),
+        (r"\binfrastructure\b", "Senior Platform Engineer"),
     ]
     for pattern, role in role_map:
         if re.search(pattern, lowered):
             return role
 
-    return title[:42] if title else "Senior DevOps Engineer"
+    if re.search(r"\b(platform|cloud|kubernetes|container|infrastructure|terraform)\b", lowered):
+        return "Senior Platform Engineer"
+    return "Senior DevOps Engineer"
 
 
 def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | None = None) -> str:

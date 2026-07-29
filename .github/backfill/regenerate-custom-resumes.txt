@@ -1,1 +1,1 @@
-2026-07-28 apply around 10 years wording, current profile certifications, clean role titles, and tolerate isolated backfill failures
+2026-07-29 apply default senior DevOps or senior platform titles to existing custom resumes
