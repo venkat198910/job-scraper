@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from product_company_career_catalog import NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS
 
 load_dotenv()
 load_dotenv("jobs-scrapper-web/.env.local")
@@ -551,6 +552,7 @@ SERVICE_BASED_COMPANY_CAREER_PAGE_URLS = {
 # incremental connector coverage.
 COMPANY_CAREER_PAGE_URLS = {
     **SERVICE_BASED_COMPANY_CAREER_PAGE_URLS,
+    **NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS,
     "TASC Outsourcing": "https://tascoutsourcing.com/en/vacancies?query=DevOps&page=1",
     "Caliberly": "https://careers-page.com/caliberly#openings",
     "Agile Consultants": "https://www.agileconsultants.ae/jobs",
