@@ -146,49 +146,114 @@ A Next.js web application is available to view and manage the scraped jobs, your
 
 The individual Python scripts can still be run locally for development or testing, but this requires setting up a local Python environment, installing dependencies from `requirements.txt`, and creating a local `.env` file with the necessary credentials (mirroring the GitHub secrets).
 
-**Local Development Setup (Optional):**
+### Local setup: one place, all commands
 
-1.  **Clone your forked repository locally:**
-    ```bash
-    git clone https://github.com/anandanair/linkedin-jobs-scrapper
-    cd linkedin-jobs-scrapper
-    ```
-2.  **Create and activate a virtual environment:**
-    ```bash
-    python -m venv .venv
-    # On Windows
-    .\.venv\Scripts\activate
-    # On macOS/Linux
-    source .venv/bin/activate
-    ```
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    playwright install # Install browser drivers for Playwright
-    ```
-4.  **Create a `.env` file:**
-    - In the root of your local repository, create a `.env` file.
-    - Add the keys and values that you configured as GitHub secrets:
+Run everything from the backend repo root: `job-scraper`.
 
-      ```env
-      # Essential Keys
-      GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-      OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
-      ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
-      GROQ_API_KEY="YOUR_GROQ_API_KEY"
-      SUPABASE_URL="YOUR_SUPABASE_URL"
-      SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
+#### 1. Setup the app
 
-      # Note: LLM settings (MODEL, RPM, etc.) can be configured in config.py
-      ```
+Windows PowerShell:
 
-5.  **Run scripts locally (example):**
-    ```bash
-    python scraper.py
-    python resume_parser.py
-    python score_jobs.py
-    python job_manager.py
-    ```
+```powershell
+cd C:\Users\venka\repos\job-scraper
+.\setup.ps1
+```
+
+If PowerShell blocks script execution:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+macOS/Linux:
+
+```bash
+cd /path/to/job-scraper
+chmod +x setup.sh scripts/*.sh
+./setup.sh
+```
+
+The setup script installs/skips dependencies automatically:
+
+- Python 3.11+
+- Node.js/npm 20+
+- backend `.venv`
+- Python requirements
+- Playwright Chromium
+- frontend npm dependencies
+- backend `.env`
+- frontend `jobs-scraper-web/.env.local`
+- frontend-to-backend assistant paths
+
+#### 2. Start the web UI
+
+Windows:
+
+```powershell
+.\scripts\run-web.ps1
+```
+
+macOS/Linux:
+
+```bash
+./scripts/run-web.sh
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
+#### 3. Optional: port forwarding / LAN access
+
+Only needed if another device/WSL/firewall must reach port `3000`. Normal local browser usage does not need this.
+
+Windows PowerShell as Administrator:
+
+```powershell
+.\scripts\enable-port-forward-3000.ps1
+```
+
+macOS/Linux:
+
+```bash
+./scripts/enable-port-forward-3000.sh
+```
+
+#### 4. Optional: install systemd service for Linux/WSL
+
+Use this if you want the web UI to run as a `systemctl --user` service.
+
+Windows PowerShell using WSL:
+
+```powershell
+.\setup.ps1 -InstallSystemd
+```
+
+Linux/WSL:
+
+```bash
+./setup.sh --install-systemd
+```
+
+Service commands:
+
+```bash
+systemctl --user status jobtrack-web.service
+journalctl --user -u jobtrack-web.service -f
+systemctl --user restart jobtrack-web.service
+systemctl --user stop jobtrack-web.service
+```
+
+For WSL, systemd must be enabled in `/etc/wsl.conf`.
+
+#### Notes
+
+- GitHub Actions secrets are automatic only inside GitHub Actions.
+- GitHub does not allow downloading repo secrets to local machines.
+- For local setup, fill `.env` / `.env.local` once, or export values before running setup.
+- Env templates are in `docs/env.backend.example` and `docs/env.frontend.example`.
 
 ## Project Structure
 
