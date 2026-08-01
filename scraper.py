@@ -149,6 +149,11 @@ def _is_india_location(*values: str | None) -> bool:
         )
     )
 
+def _is_singapore_location(*values: str | None) -> bool:
+    """Return true when a configured/search/result location is in Singapore."""
+    haystack = " ".join(str(value or "").lower() for value in values)
+    return "singapore" in haystack
+
 def _linkedin_uae_job_has_sponsorship(job_details: dict) -> bool:
     """Keep UAE jobs only when sponsorship or visa support is explicitly offered."""
     if not getattr(config, "LINKEDIN_UAE_REQUIRE_SPONSORSHIP", True):
@@ -2953,22 +2958,29 @@ if __name__ == "__main__":
 
     # Get jobs from Careers Future
     if "careers_future" in scraping_sources:
-        logging.info(f"\n--- Starting Careers Future Job Scraping ---")
-        max_jobs_per_search = app_settings.get_advanced_int("maxCareersFutureJobsPerSearch")
-        for query in app_settings.get_careers_future_search_queries():
-            logging.info(f"\n{'='*20} Processing Careers Future Search Query: '{query}' {'='*20}")
+        careers_future_locations = app_settings.get_linkedin_locations()
+        if not any(_is_singapore_location(location) for location in careers_future_locations):
+            logging.info(
+                "\n--- Skipping Careers Future Job Scraping because selected locations are not Singapore: %s ---",
+                ", ".join(careers_future_locations),
+            )
+        else:
+            logging.info(f"\n--- Starting Careers Future Job Scraping ---")
+            max_jobs_per_search = app_settings.get_advanced_int("maxCareersFutureJobsPerSearch")
+            for query in app_settings.get_careers_future_search_queries():
+                logging.info(f"\n{'='*20} Processing Careers Future Search Query: '{query}' {'='*20}")
 
-            # 1. Process the query: Scrape IDs, filter, fetch new details
-            new_careers_future_job_details = process_careers_future_query(query, limit=max_jobs_per_search)
+                # 1. Process the query: Scrape IDs, filter, fetch new details
+                new_careers_future_job_details = process_careers_future_query(query, limit=max_jobs_per_search)
 
-            # 2. Save the NEW scraped data to Supabase
-            if new_careers_future_job_details:
-                logging.info(f"\n--- Saving {len(new_careers_future_job_details)} new job(s) for query '{query}' ---")
-                supabase_utils.save_jobs_to_supabase(new_careers_future_job_details)
-                total_new_jobs_saved += len(new_careers_future_job_details)
-                alert_jobs.extend(new_careers_future_job_details)
-            else:
-                logging.info(f"\nNo new job details were fetched or processed for query '{query}'.")
+                # 2. Save the NEW scraped data to Supabase
+                if new_careers_future_job_details:
+                    logging.info(f"\n--- Saving {len(new_careers_future_job_details)} new job(s) for query '{query}' ---")
+                    supabase_utils.save_jobs_to_supabase(new_careers_future_job_details)
+                    total_new_jobs_saved += len(new_careers_future_job_details)
+                    alert_jobs.extend(new_careers_future_job_details)
+                else:
+                    logging.info(f"\nNo new job details were fetched or processed for query '{query}'.")
     else:
         logging.info("\n--- Skipping Careers Future Job Scraping per config ---")
 

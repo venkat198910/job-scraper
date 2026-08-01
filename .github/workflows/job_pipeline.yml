@@ -7,6 +7,7 @@ on:
   - cron: '17 */2 * * *'
   workflow_dispatch:
 
+
 permissions:
   contents: read
 
@@ -19,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 15
       matrix:
         include:
         - source: linkedin
