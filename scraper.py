@@ -2795,14 +2795,31 @@ def _with_career_url(target: dict) -> dict:
     enriched["career_url"] = career_url
     return enriched
 
-def process_company_careers(limit: int | None = None) -> list:
+def process_company_careers(
+    limit: int | None = None,
+    chunk_index: int = 0,
+    chunk_total: int = 1,
+) -> list:
     """Fetch matching jobs from configured top company career pages."""
     targets = list(getattr(config, "COMPANY_CAREER_TARGETS", []))
     target_limit = int(getattr(config, "COMPANY_CAREER_TARGET_LIMIT", 300) or 300)
     targets = targets[:target_limit]
     targets_per_run = int(getattr(config, "COMPANY_CAREER_TARGETS_PER_RUN", target_limit) or target_limit)
     total_targets = len(targets)
-    if targets_per_run > 0 and total_targets > targets_per_run:
+    if chunk_total > 1:
+        targets = [
+            target
+            for target_index, target in enumerate(targets)
+            if target_index % chunk_total == chunk_index
+        ]
+        logging.info(
+            "Company Careers chunk %s/%s will process %s of %s target(s).",
+            chunk_index + 1,
+            chunk_total,
+            len(targets),
+            total_targets,
+        )
+    elif targets_per_run > 0 and total_targets > targets_per_run:
         batch_index = int(datetime.now(timezone.utc).timestamp() // 3600)
         start = (batch_index * targets_per_run) % total_targets
         end = start + targets_per_run
@@ -2874,7 +2891,7 @@ if __name__ == "__main__":
         })
         if unknown_sources:
             raise ValueError(f"Unknown SCRAPING_SOURCE value(s): {', '.join(unknown_sources)}")
-        scraping_sources = [source for source in scraping_sources if source in requested_sources]
+        scraping_sources = requested_sources
 
     logging.info("Enabled scraping sources: %s", ", ".join(scraping_sources) or "none")
     if requested_sources:
@@ -2995,7 +3012,11 @@ if __name__ == "__main__":
     if "company_careers" in scraping_sources:
         logging.info("\n--- Starting Company Careers Job Scraping ---")
         max_jobs_per_run = app_settings.get_advanced_int("maxCompanyCareerJobsPerRun")
-        new_company_career_jobs = process_company_careers(limit=max_jobs_per_run)
+        new_company_career_jobs = process_company_careers(
+            limit=max_jobs_per_run,
+            chunk_index=scrape_chunk_index,
+            chunk_total=scrape_chunk_total,
+        )
 
         if new_company_career_jobs:
             logging.info("\n--- Saving %s new company career job(s) ---", len(new_company_career_jobs))

@@ -45,7 +45,16 @@ jobs:
           chunk_total: 1
         - source: company_careers
           chunk_index: 0
-          chunk_total: 1
+          chunk_total: 4
+        - source: company_careers
+          chunk_index: 1
+          chunk_total: 4
+        - source: company_careers
+          chunk_index: 2
+          chunk_total: 4
+        - source: company_careers
+          chunk_index: 3
+          chunk_total: 4
         - source: naukri
           chunk_index: 0
           chunk_total: 1

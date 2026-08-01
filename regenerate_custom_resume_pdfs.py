@@ -1,5 +1,6 @@
 import argparse
 import logging
+import time
 
 import config
 from custom_resume_generator import _enforce_total_experience, build_professional_title
@@ -10,6 +11,28 @@ from resume_filename import build_custom_resume_filename
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+def _execute_with_retries(query, action: str, attempts: int = 4):
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return query.execute()
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            wait_seconds = attempt * 2
+            logging.warning(
+                "%s failed on attempt %s/%s: %s. Retrying in %ss...",
+                action,
+                attempt,
+                attempts,
+                exc,
+                wait_seconds,
+            )
+            time.sleep(wait_seconds)
+    raise RuntimeError(f"{action} failed after {attempts} attempts") from last_exc
 
 
 def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -> list[dict]:
@@ -24,11 +47,11 @@ def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -
                 break
             end = offset + min(batch_size, remaining) - 1
 
-        response = (
+        response = _execute_with_retries(
             supabase_utils.supabase.table(config.SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME)
             .select("*")
-            .range(offset, end)
-            .execute()
+            .range(offset, end),
+            f"fetch customized resumes rows {offset}-{end}",
         )
         batch = response.data or []
         rows.extend(batch)
@@ -45,12 +68,12 @@ def _fetch_job_metadata_by_resume_id() -> dict[str, dict]:
     batch_size = 1000
 
     while True:
-        response = (
+        response = _execute_with_retries(
             supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
             .select("job_id, company, job_title, level, description, customized_resume_id")
             .not_.is_("customized_resume_id", None)
-            .range(offset, offset + batch_size - 1)
-            .execute()
+            .range(offset, offset + batch_size - 1),
+            f"fetch job metadata rows {offset}-{offset + batch_size - 1}",
         )
         rows = response.data or []
         for row in rows:
@@ -129,7 +152,7 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
             if not uploaded_path:
                 raise RuntimeError("storage upload returned no path")
 
-            response = (
+            response = _execute_with_retries(
                 supabase_utils.supabase.table(config.SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME)
                 .update(
                     {
@@ -141,8 +164,8 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
                         ],
                     }
                 )
-                .eq("id", resume_id)
-                .execute()
+                .eq("id", resume_id),
+                f"update customized_resume id={resume_id}",
             )
             if not response.data:
                 raise RuntimeError("database update returned no rows")

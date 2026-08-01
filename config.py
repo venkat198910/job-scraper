@@ -859,9 +859,9 @@ COMPANY_CAREER_TARGETS_PER_RUN = 0
 SCRAPING_SOURCES = [
     "linkedin",
     "company_careers",
+    "naukri_gulf",
     # "careers_future"
     # "naukri",
-    # "naukri_gulf",
 ]
 
 JOBS_TO_SCORE_PER_RUN = 10
