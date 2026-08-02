@@ -7,6 +7,15 @@ from scripts.resolve_product_company_careers import _detect_ats
 
 
 class CompanyCareerResolutionTests(unittest.TestCase):
+    EXPECTED_ADDITIONAL_PRODUCT_COMPANIES = {
+        "Airbus", "Amdocs", "BAE Systems", "Check Point Software", "Dassault Systemes",
+        "Epic Games", "F5", "Finastra", "GSK", "Guidewire Software", "LVMH", "MYOB",
+        "Nestle", "NICE", "Novo Nordisk", "OpenText", "Pegasystems", "Progress Software",
+        "REA Group", "Rolls-Royce", "Safran", "SAS", "Seagate", "Sony Interactive Entertainment",
+        "SUSE", "Tally Solutions", "Temenos", "Teradata", "Thales", "TechnologyOne", "Ubisoft",
+        "Unilever", "Unity", "WiseTech Global", "Xero", "Xiaomi", "Zoom Video Communications",
+    }
+
     def test_google_discovery_pages_are_never_active_targets(self):
         for target in config.COMPANY_CAREER_TARGETS:
             urls = f"{target.get('career_url', '')} {target.get('list_url', '')}".lower()
@@ -23,6 +32,10 @@ class CompanyCareerResolutionTests(unittest.TestCase):
             if "www.google.com/search" in url.lower()
         }
         self.assertEqual(placeholders - set(RESOLVED_PRODUCT_COMPANY_CAREER_TARGETS), {"Berkshire Hathaway"})
+
+    def test_additional_reputed_product_companies_are_active(self):
+        active_names = {str(target.get("name") or "") for target in config.COMPANY_CAREER_TARGETS}
+        self.assertTrue(self.EXPECTED_ADDITIONAL_PRODUCT_COMPANIES.issubset(active_names))
 
     def test_supported_ats_urls_are_detected(self):
         self.assertEqual(_detect_ats("https://jobs.lever.co/example")["slug"], "example")
