@@ -151,6 +151,8 @@ DEFAULT_SETTINGS = {
         "companyPortals": True,
         "autoGenerateResume": True,
         "strictExperience": getattr(config, "LINKEDIN_REQUIRE_EXPERIENCE_RANGE_MATCH", True),
+        "applicationProfileEnabled": True,
+        "autoAnswersEnabled": True,
     },
 }
 
@@ -483,7 +485,10 @@ def get_min_score() -> int:
 
 
 def get_application_profile() -> dict[str, str]:
-    return get_app_settings()["applicationProfile"]
+    settings = get_app_settings()
+    if not settings["toggles"].get("applicationProfileEnabled", True):
+        return {}
+    return settings["applicationProfile"]
 
 
 def get_application_automation() -> dict[str, Any]:
@@ -491,7 +496,10 @@ def get_application_automation() -> dict[str, Any]:
 
 
 def get_application_auto_answers() -> dict[str, str]:
-    return get_app_settings()["applicationAutoAnswers"]
+    settings = get_app_settings()
+    if not settings["toggles"].get("autoAnswersEnabled", True):
+        return {}
+    return settings["applicationAutoAnswers"]
 
 
 def normalize_question_key(value: Any) -> str:
@@ -510,7 +518,10 @@ def _normalize_question_answers(value: Any, fallback: dict[str, str]) -> dict[st
 
 
 def get_application_question_answers() -> dict[str, str]:
-    return get_app_settings()["applicationQuestionAnswers"]
+    settings = get_app_settings()
+    if not settings["toggles"].get("autoAnswersEnabled", True):
+        return {}
+    return settings["applicationQuestionAnswers"]
 
 
 def find_application_question_answer(label: str) -> str | None:

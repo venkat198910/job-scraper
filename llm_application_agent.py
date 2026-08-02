@@ -266,7 +266,7 @@ async def _snapshot(page: Any) -> dict[str, Any]:
 def _profile_context() -> dict[str, Any]:
     profile = app_settings.get_application_profile()
     answers = app_settings.get_application_auto_answers()
-    known_questions = app_settings.get_app_settings().get("applicationQuestionAnswers", {})
+    known_questions = app_settings.get_application_question_answers()
     if not isinstance(known_questions, dict):
         known_questions = {}
     email, _password = assistant._portal_credentials()
