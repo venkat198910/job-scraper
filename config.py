@@ -172,6 +172,12 @@ LINKEDIN_UAE_SPONSORSHIP_KEYWORDS = [
 # an applicant count, the job is kept.
 LINKEDIN_MAX_APPLICANTS = 30
 
+# Only save jobs from companies in the curated established-employer catalogs
+# and active career targets. This intentionally rejects unknown, confidential,
+# and startup employers discovered through broad job-board searches.
+ESTABLISHED_COMPANIES_ONLY = True
+ADDITIONAL_ESTABLISHED_COMPANIES = []
+
 # Local title/domain guard. Broad searches like "Cloud Engineer" can return
 # data engineering jobs; skip them before saving/scoring.
 EXCLUDED_JOB_TITLE_KEYWORDS = [

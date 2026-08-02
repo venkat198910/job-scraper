@@ -111,6 +111,70 @@ def _linkedin_job_matches_experience_range(job_details: dict) -> bool:
 
     return any(min_years <= low <= max_years and high <= max_years for low, high in ranges)
 
+_ESTABLISHED_COMPANY_NAME_CACHE: set[str] | None = None
+
+
+def _normalize_company_for_filter(value: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    return re.sub(
+        r"\b(?:private|pvt|limited|ltd|incorporated|inc|corporation|corp|llc|plc)\b",
+        "",
+        normalized,
+    ).strip()
+
+
+def _established_company_names() -> set[str]:
+    global _ESTABLISHED_COMPANY_NAME_CACHE
+    if _ESTABLISHED_COMPANY_NAME_CACHE is not None:
+        return _ESTABLISHED_COMPANY_NAME_CACHE
+
+    names = set(getattr(config, "COMPANY_CAREER_PAGE_URLS", {}).keys())
+    names.update(
+        str(target.get("name") or "")
+        for target in getattr(config, "COMPANY_CAREER_TARGETS", [])
+        if isinstance(target, dict)
+    )
+    names.update(getattr(config, "ADDITIONAL_ESTABLISHED_COMPANIES", []))
+    _ESTABLISHED_COMPANY_NAME_CACHE = {
+        normalized
+        for name in names
+        if (normalized := _normalize_company_for_filter(name))
+    }
+    return _ESTABLISHED_COMPANY_NAME_CACHE
+
+
+def _job_is_from_established_company(job_details: dict) -> bool:
+    if not getattr(config, "ESTABLISHED_COMPANIES_ONLY", False):
+        return True
+
+    company = _normalize_company_for_filter(job_details.get("company"))
+    if not company:
+        return False
+
+    padded_company = f" {company} "
+    for known_company in _established_company_names():
+        if company == known_company:
+            return True
+        padded_known = f" {known_company} "
+        if padded_known in padded_company or padded_company in padded_known:
+            return True
+    return False
+
+
+def _filter_established_company_jobs(jobs: list[dict], source: str) -> list[dict]:
+    if not getattr(config, "ESTABLISHED_COMPANIES_ONLY", False):
+        return jobs
+
+    kept = [job for job in jobs if _job_is_from_established_company(job)]
+    rejected = len(jobs) - len(kept)
+    if rejected:
+        logging.info(
+            "%s established-company filter rejected %s startup, unknown, or non-catalog job(s).",
+            source,
+            rejected,
+        )
+    return kept
+
 def _is_uae_location(*values: str | None) -> bool:
     """Return true when a configured/search/result location is in the UAE."""
     haystack = " ".join(str(value or "").lower() for value in values)
@@ -2943,7 +3007,10 @@ if __name__ == "__main__":
             print(f"\n{'='*20} Processing Search Query: '{query}' in '{location}' {'='*20}")
 
             # 1. Process the query: Scrape IDs, filter, fetch new details
-            new_linkedin_job_details = process_linkedin_query(query, location, limit=max_jobs_per_search)
+            new_linkedin_job_details = _filter_established_company_jobs(
+                process_linkedin_query(query, location, limit=max_jobs_per_search),
+                "LinkedIn",
+            )
 
             # 2. Save the NEW scraped data to Supabase
             if new_linkedin_job_details:
@@ -2971,7 +3038,10 @@ if __name__ == "__main__":
                 logging.info(f"\n{'='*20} Processing Careers Future Search Query: '{query}' {'='*20}")
 
                 # 1. Process the query: Scrape IDs, filter, fetch new details
-                new_careers_future_job_details = process_careers_future_query(query, limit=max_jobs_per_search)
+                new_careers_future_job_details = _filter_established_company_jobs(
+                    process_careers_future_query(query, limit=max_jobs_per_search),
+                    "CareersFuture",
+                )
 
                 # 2. Save the NEW scraped data to Supabase
                 if new_careers_future_job_details:
@@ -2990,7 +3060,10 @@ if __name__ == "__main__":
         max_jobs_per_search = app_settings.get_advanced_int("maxNaukriJobsPerSearch")
         for query in app_settings.get_linkedin_search_queries():
             for location in app_settings.get_linkedin_locations():
-                new_naukri_jobs = process_naukri_query(query, location, limit=max_jobs_per_search)
+                new_naukri_jobs = _filter_established_company_jobs(
+                    process_naukri_query(query, location, limit=max_jobs_per_search),
+                    "Naukri",
+                )
 
                 if new_naukri_jobs:
                     logging.info("\n--- Saving %s new Naukri job(s) for query %r in %r ---", len(new_naukri_jobs), query, location)
@@ -3008,7 +3081,10 @@ if __name__ == "__main__":
         max_jobs_per_search = app_settings.get_advanced_int("maxNaukriGulfJobsPerSearch")
         for query in app_settings.get_linkedin_search_queries():
             for location in app_settings.get_linkedin_locations():
-                new_naukri_gulf_jobs = process_naukri_gulf_query(query, location, limit=max_jobs_per_search)
+                new_naukri_gulf_jobs = _filter_established_company_jobs(
+                    process_naukri_gulf_query(query, location, limit=max_jobs_per_search),
+                    "Naukri Gulf",
+                )
 
                 if new_naukri_gulf_jobs:
                     logging.info("\n--- Saving %s new Naukri Gulf job(s) for query %r in %r ---", len(new_naukri_gulf_jobs), query, location)
@@ -3024,10 +3100,13 @@ if __name__ == "__main__":
     if "company_careers" in scraping_sources:
         logging.info("\n--- Starting Company Careers Job Scraping ---")
         max_jobs_per_run = app_settings.get_advanced_int("maxCompanyCareerJobsPerRun")
-        new_company_career_jobs = process_company_careers(
-            limit=max_jobs_per_run,
-            chunk_index=scrape_chunk_index,
-            chunk_total=scrape_chunk_total,
+        new_company_career_jobs = _filter_established_company_jobs(
+            process_company_careers(
+                limit=max_jobs_per_run,
+                chunk_index=scrape_chunk_index,
+                chunk_total=scrape_chunk_total,
+            ),
+            "Company Careers",
         )
 
         if new_company_career_jobs:
