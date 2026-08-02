@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+LOCAL_NODE_DIR="${JOBTRACK_NODE_DIR:-$HOME/.local/jobtrack-node20}"
+if [[ -x "$LOCAL_NODE_DIR/bin/node" && -x "$LOCAL_NODE_DIR/bin/npm" ]]; then
+  export PATH="$LOCAL_NODE_DIR/bin:$PATH"
+fi
+
 run_setup() {
   if command -v python3 >/dev/null 2>&1; then
     if python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then

@@ -3,6 +3,11 @@ set -euo pipefail
 
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+LOCAL_NODE_DIR="${JOBTRACK_NODE_DIR:-$HOME/.local/jobtrack-node20}"
+if [[ -x "$LOCAL_NODE_DIR/bin/node" && -x "$LOCAL_NODE_DIR/bin/npm" ]]; then
+  export PATH="$LOCAL_NODE_DIR/bin:$PATH"
+fi
+
 if [[ -n "${FRONTEND_DIR:-}" ]]; then
   WEB_DIR="$(cd "$FRONTEND_DIR" && pwd)"
 elif [[ -f "$BACKEND_DIR/../jobs-scraper-web/package.json" ]]; then
@@ -19,4 +24,4 @@ else
 fi
 
 cd "$WEB_DIR"
-npm run dev -- --hostname 0.0.0.0 --port 3000
+npm run dev -- --hostname "${JOBTRACK_WEB_HOST:-0.0.0.0}" --port "${PORT:-3000}"

@@ -447,6 +447,58 @@ def install_systemd_service(backend_dir: Path) -> None:
     raise RuntimeError("systemd service installation is supported only on Linux/WSL.")
 
 
+def verify_local_setup(backend_dir: Path, frontend_dir: Path | None) -> int:
+    failures = 0
+
+    def check(label: str, ok: bool, detail: str = "") -> None:
+        nonlocal failures
+        status = "OK" if ok else "FAIL"
+        print(f"[{status}] {label}{': ' + detail if detail else ''}")
+        if not ok:
+            failures += 1
+
+    python_path = venv_python(backend_dir)
+    check("backend venv python", python_path.exists(), str(python_path))
+
+    if python_path.exists():
+        result = subprocess.run(
+            [str(python_path), "-c", "import requests, bs4, dotenv, supabase, playwright, reportlab; print('imports ok')"],
+            cwd=str(backend_dir),
+            capture_output=True,
+            text=True,
+        )
+        check("backend Python dependencies", result.returncode == 0, (result.stdout or result.stderr).strip())
+
+    check("backend .env exists", (backend_dir / ".env").exists(), str(backend_dir / ".env"))
+
+    local_node_dir = Path.home() / ".local" / "jobtrack-node20" / "bin"
+    if platform.system().lower().startswith("linux") and (local_node_dir / "node").exists():
+        os.environ["PATH"] = f"{local_node_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    node = shutil.which("node") or shutil.which("node.exe")
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    check("node command", bool(node), node or "missing")
+    check("npm command", bool(npm), npm or "missing")
+    if node:
+        version = subprocess.run([node, "--version"], capture_output=True, text=True, check=False)
+        major = parse_node_major(version.stdout or "")
+        check("Node.js version >= 20", bool(major and major >= 20), (version.stdout or "").strip())
+
+    if frontend_dir:
+        check("frontend package.json", (frontend_dir / "package.json").exists(), str(frontend_dir / "package.json"))
+        check("frontend node_modules", (frontend_dir / "node_modules").exists(), str(frontend_dir / "node_modules"))
+        check("frontend .env.local exists", (frontend_dir / ".env.local").exists(), str(frontend_dir / ".env.local"))
+    else:
+        check("frontend repo detected", False, "jobs-scraper-web not found")
+
+    if failures:
+        print(f"\nLocal setup verification failed: {failures} issue(s).")
+        return 1
+
+    print("\nLocal setup verification passed.")
+    return 0
+
+
 def main() -> int:
     if sys.version_info < (3, 11):
         raise RuntimeError(
@@ -460,10 +512,14 @@ def main() -> int:
     parser.add_argument("--skip-playwright", action="store_true", help="Skip Playwright browser install.")
     parser.add_argument("--force-env", action="store_true", help="Rewrite .env and .env.local from available values/templates.")
     parser.add_argument("--install-systemd", action="store_true", help="Install/start the JobTrack web systemd user service after setup.")
+    parser.add_argument("--verify-only", action="store_true", help="Check local setup without installing/updating dependencies.")
     args = parser.parse_args()
 
     backend_dir = repo_root()
     frontend_dir = None if args.skip_frontend else find_frontend_dir(backend_dir, args.frontend_dir)
+
+    if args.verify_only:
+        return verify_local_setup(backend_dir, frontend_dir)
 
     ensure_backend_env(backend_dir, frontend_dir, args.force_env)
     python_path = ensure_python_venv(backend_dir)

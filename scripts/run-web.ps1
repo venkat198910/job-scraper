@@ -14,4 +14,6 @@ if (-not $frontendDir) {
 }
 
 Set-Location $frontendDir
-npm run dev -- --hostname 0.0.0.0 --port 3000
+$hostName = if ($env:JOBTRACK_WEB_HOST) { $env:JOBTRACK_WEB_HOST } else { "0.0.0.0" }
+$port = if ($env:PORT) { $env:PORT } else { "3000" }
+npm run dev -- --hostname $hostName --port $port
