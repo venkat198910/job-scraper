@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from product_company_career_catalog import NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS
+from resolved_product_company_career_targets import RESOLVED_PRODUCT_COMPANY_CAREER_TARGETS
 
 load_dotenv()
 load_dotenv("jobs-scrapper-web/.env.local")
@@ -843,6 +844,23 @@ COMPANY_CAREER_PAGE_URLS = {
     "Ather Energy": "https://www.atherenergy.com/careers",
 }
 
+# Replace discovery-only search URLs with resolver-verified official pages.
+COMPANY_CAREER_PAGE_URLS.update(
+    {
+        name: str(target["career_url"])
+        for name, target in RESOLVED_PRODUCT_COMPANY_CAREER_TARGETS.items()
+        if target.get("career_url")
+    }
+)
+# Keep unresolved discovery hints out of both the official-page catalog and the
+# active scraper. They can be retried by the resolver without consuming a job
+# pipeline chunk in the meantime.
+COMPANY_CAREER_PAGE_URLS = {
+    name: career_url
+    for name, career_url in COMPANY_CAREER_PAGE_URLS.items()
+    if "www.google.com/search" not in str(career_url).lower()
+}
+
 CATALOG_COMPANY_CAREER_JOB_LINK_PATTERN = (
     r"/(?:job|jobs|careers|career|positions|openings|opportunities|vacancy|vacancies)"
     r"(?:/|[?#-]).+"
@@ -859,6 +877,9 @@ def _catalog_company_career_targets() -> list[dict]:
     for name, career_url in COMPANY_CAREER_PAGE_URLS.items():
         if str(name).strip().lower() in configured_names:
             continue
+        # Search result pages are discovery hints, never job feeds.
+        if "www.google.com/search" in str(career_url).lower():
+            continue
         targets.append(
             {
                 "name": name,
@@ -872,6 +893,19 @@ def _catalog_company_career_targets() -> list[dict]:
     return targets
 
 
+COMPANY_CAREER_TARGETS.extend(
+    {
+        "name": name,
+        **target,
+    }
+    for name, target in RESOLVED_PRODUCT_COMPANY_CAREER_TARGETS.items()
+    if str(name).strip().lower()
+    not in {
+        str(existing.get("name") or "").strip().lower()
+        for existing in COMPANY_CAREER_TARGETS
+        if isinstance(existing, dict)
+    }
+)
 COMPANY_CAREER_TARGETS.extend(_catalog_company_career_targets())
 COMPANY_CAREER_TARGET_LIMIT = len(COMPANY_CAREER_TARGETS)
 COMPANY_CAREER_TARGETS_PER_RUN = 0
