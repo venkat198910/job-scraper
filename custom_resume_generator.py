@@ -35,16 +35,29 @@ def _enforce_total_experience(summary: str) -> str:
     expected_phrase = _configured_total_experience_phrase()
     text = str(summary)
     patterns = [
-        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
-        (r"\bover\s+\d+(?:\.\d+)?\+?\s+years\b", expected_phrase),
-        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b", f"{expected_phrase} of experience"),
-        (r"(?<!over )\b\d+(?:\.\d+)?\+?\s+years'\s+experience\b", f"{expected_phrase} of experience"),
+        (
+            r"\b(?:(?:over|around|about|approximately|nearly|almost|more\s+than)\s+)?"
+            r"\d+(?:\.\d+)?\+?\s+years\s+of\s+experience\b",
+            f"{expected_phrase} of experience",
+        ),
+        (
+            r"\b(?:(?:over|around|about|approximately|nearly|almost|more\s+than)\s+)?"
+            r"\d+(?:\.\d+)?\+?\s+years'\s+experience\b",
+            f"{expected_phrase} of experience",
+        ),
+        (
+            r"\b(?:(?:over|around|about|approximately|nearly|almost|more\s+than)\s+)?"
+            r"\d+(?:\.\d+)?\+?\s+years\b",
+            expected_phrase,
+        ),
     ]
 
     replaced = False
     for pattern, replacement in patterns:
         text, count = re.subn(pattern, replacement, text, count=1, flags=re.IGNORECASE)
-        replaced = replaced or count > 0
+        if count:
+            replaced = True
+            break
 
     if not replaced:
         text = re.sub(
@@ -55,6 +68,8 @@ def _enforce_total_experience(summary: str) -> str:
             flags=re.IGNORECASE,
         )
 
+    # Repair summaries generated before this normalization was fixed.
+    text = re.sub(r"\b(?:around\s+){2,}", "around ", text, flags=re.IGNORECASE)
     return text
 
 
