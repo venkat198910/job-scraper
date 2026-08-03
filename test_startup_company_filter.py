@@ -29,6 +29,24 @@ class EstablishedCompanyFilterTests(unittest.TestCase):
         self.assertFalse(scraper._job_is_from_established_company({"company": "Confidential"}))
         self.assertFalse(scraper._job_is_from_established_company({}))
 
+    def test_keeps_non_startup_uae_employer_not_yet_in_catalog(self):
+        self.assertTrue(
+            scraper._job_is_from_established_company(
+                {"company": "Confidential", "location": "Dubai, United Arab Emirates"}
+            )
+        )
+
+    def test_rejects_explicit_uae_startup(self):
+        self.assertFalse(
+            scraper._job_is_from_established_company(
+                {
+                    "company": "Tiny Seed Labs",
+                    "location": "Abu Dhabi, United Arab Emirates",
+                    "description": "Join our early-stage company",
+                }
+            )
+        )
+
     def test_filter_can_be_disabled(self):
         with patch.object(scraper.config, "ESTABLISHED_COMPANIES_ONLY", False):
             self.assertTrue(scraper._job_is_from_established_company({"company": "Any Startup"}))

@@ -389,6 +389,8 @@ COMPANY_CAREER_TARGETS = [
     # Workday/Jibe career sites verified from public career pages.
     {"name": "Philips", "ats": "workday", "host": "philips.wd3.myworkdayjobs.com", "tenant": "philips", "site": "jobs-and-careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Signify", "ats": "workday", "host": "lighting.wd3.myworkdayjobs.com", "tenant": "lighting", "site": "jobs-and-careers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Kyndryl", "career_url": "https://kyndryl.wd5.myworkdayjobs.com/KyndrylProfessionalCareers", "ats": "workday", "host": "kyndryl.wd5.myworkdayjobs.com", "tenant": "kyndryl", "site": "KyndrylProfessionalCareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
+    {"name": "Synechron", "career_url": "https://synechron.wd1.myworkdayjobs.com/SynechronCareers", "ats": "workday", "host": "synechron.wd1.myworkdayjobs.com", "tenant": "synechron", "site": "SynechronCareers", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "NVIDIA", "career_url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "ats": "workday", "host": "nvidia.wd5.myworkdayjobs.com", "tenant": "nvidia", "site": "NVIDIAExternalCareerSite", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Intel", "career_url": "https://intel.wd1.myworkdayjobs.com/External", "ats": "workday", "host": "intel.wd1.myworkdayjobs.com", "tenant": "intel", "site": "External", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
     {"name": "Qualcomm", "career_url": "https://qualcomm.wd12.myworkdayjobs.com/External", "ats": "workday", "host": "qualcomm.wd12.myworkdayjobs.com", "tenant": "qualcomm", "site": "External", "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"]},
@@ -522,6 +524,15 @@ COMPANY_CAREER_TARGETS = [
     {"name": "Cursor", "ats": "ashby", "slug": "cursor"},
     {"name": "Linear", "ats": "ashby", "slug": "linear"},
     {"name": "Perplexity", "ats": "ashby", "slug": "perplexity"},
+
+    # Established employers operating from Bhartiya City, Bengaluru.
+    {"name": "MR Cooper / Rocket India", "ats": "html", "career_url": "https://careers.rocket.com/in/en/search-results", "list_url": "https://careers.rocket.com/in/en/search-results", "job_link_pattern": r"/(?:job|jobs)/.+", "max_detail_pages": 50},
+    {"name": "NTT Ltd", "ats": "html", "career_url": "https://www.global.ntt/about-us/join-us/careers/", "list_url": "https://www.global.ntt/about-us/join-us/careers/", "job_link_pattern": r"/(?:job|jobs|careers)/.+", "max_detail_pages": 50},
+    {"name": "7-Eleven Global Solution Center India", "ats": "html", "career_url": "https://7-elevengsc.com/about-us/", "list_url": "https://7-elevengsc.com/about-us/", "job_link_pattern": r"/(?:job|jobs|openings|vacancies|candidate)/.+", "max_detail_pages": 50},
+    {"name": "Blend Labs", "ats": "html", "career_url": "https://blend.com/company/careers/job-openings/", "list_url": "https://blend.com/company/careers/job-openings/", "job_link_pattern": r"/company/careers/job-openings/.+", "max_detail_pages": 50},
+    {"name": "Giant Eagle GCC", "ats": "html", "career_url": "https://jobs.gianteagle.com/in/hi", "list_url": "https://jobs.gianteagle.com/in/hi", "job_link_pattern": r"/(?:in|us)/(?:en|hi)/job/.+", "max_detail_pages": 50},
+    {"name": "Takeda Innovation Capability Center", "ats": "html", "career_url": "https://jobs.takeda.com/innovation-capability-centers", "list_url": "https://jobs.takeda.com/innovation-capability-centers", "job_link_pattern": r"/(?:job|jobs)/.+", "max_detail_pages": 50},
+    {"name": "TresVista Analytics", "ats": "html", "career_url": "https://www.tresvista.com/careers/", "list_url": "https://www.tresvista.com/careers/", "job_link_pattern": r"/(?:job|jobs|careers)/.+", "max_detail_pages": 50},
 ]
 
 # Direct posting URLs that repair known legacy records where only a company's
@@ -587,6 +598,15 @@ COMPANY_CAREER_PAGE_URLS = {
     "Adecco UAE": "https://www.adecco.com/en-ae/middle-east-jobs",
     "Salt UAE": "https://welovesalt.com/jobs",
     "Marc Ellis": "https://www.marc-ellis.com/jobs/",
+    "MR Cooper / Rocket India": "https://careers.rocket.com/in/en/search-results",
+    "Kyndryl": "https://kyndryl.wd5.myworkdayjobs.com/KyndrylProfessionalCareers",
+    "NTT Ltd": "https://www.global.ntt/about-us/join-us/careers/",
+    "7-Eleven Global Solution Center India": "https://7-elevengsc.com/about-us/",
+    "Synechron": "https://synechron.wd1.myworkdayjobs.com/SynechronCareers",
+    "Blend Labs": "https://blend.com/company/careers/job-openings/",
+    "Giant Eagle GCC": "https://jobs.gianteagle.com/in/hi",
+    "Takeda Innovation Capability Center": "https://jobs.takeda.com/innovation-capability-centers",
+    "TresVista Analytics": "https://www.tresvista.com/careers/",
     "CBA India Services Private Limited": "https://cba.wd3.myworkdayjobs.com/en-US/CommBank_Careers?q=DevOps&locationCountry=c4f78be1a8f14da0ab49ce1162348a5e&hiringCompany=007f52aebee601634bb894dc0d370187",
     "Lloyds": "https://lbg.wd3.myworkdayjobs.com/en-US/Lloyds_Technology_Centre?q=DevOps+Engineer",
     "Deloitte US": "https://apply.deloitte.com/en_US/careers/SearchJobs",

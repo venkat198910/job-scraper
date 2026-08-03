@@ -15,6 +15,12 @@ class CompanyCareerResolutionTests(unittest.TestCase):
         "SUSE", "Tally Solutions", "Temenos", "Teradata", "Thales", "TechnologyOne", "Ubisoft",
         "Unilever", "Unity", "WiseTech Global", "Xero", "Xiaomi", "Zoom Video Communications",
     }
+    EXPECTED_BHARTIYA_CITY_COMPANIES = {
+        "MR Cooper / Rocket India", "Kyndryl", "NTT Ltd",
+        "7-Eleven Global Solution Center India", "Synechron", "Blend Labs",
+        "Giant Eagle GCC", "Infosys", "Signify", "Ecolab",
+        "Takeda Innovation Capability Center", "TresVista Analytics",
+    }
 
     def test_google_discovery_pages_are_never_active_targets(self):
         for target in config.COMPANY_CAREER_TARGETS:
@@ -36,6 +42,10 @@ class CompanyCareerResolutionTests(unittest.TestCase):
     def test_additional_reputed_product_companies_are_active(self):
         active_names = {str(target.get("name") or "") for target in config.COMPANY_CAREER_TARGETS}
         self.assertTrue(self.EXPECTED_ADDITIONAL_PRODUCT_COMPANIES.issubset(active_names))
+
+    def test_bhartiya_city_companies_are_active(self):
+        active_names = {str(target.get("name") or "") for target in config.COMPANY_CAREER_TARGETS}
+        self.assertTrue(self.EXPECTED_BHARTIYA_CITY_COMPANIES.issubset(active_names))
 
     def test_supported_ats_urls_are_detected(self):
         self.assertEqual(_detect_ats("https://jobs.lever.co/example")["slug"], "example")

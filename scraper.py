@@ -158,6 +158,29 @@ def _job_is_from_established_company(job_details: dict) -> bool:
         padded_known = f" {known_company} "
         if padded_known in padded_company or padded_company in padded_known:
             return True
+
+    # UAE boards contain many legitimate local employers and recruiter-managed
+    # listings whose company names are not present in our global career-page
+    # catalog.  Treating "not in catalog" as "startup" discarded those jobs
+    # before they could ever be saved.  Keep UAE results unless the listing
+    # explicitly identifies itself as a startup; the established-company
+    # allowlist remains strict for the other configured markets.
+    if _is_uae_location(job_details.get("location")):
+        startup_text = " ".join(
+            str(job_details.get(field) or "")
+            for field in ("company", "title", "description")
+        ).lower()
+        startup_markers = (
+            "startup",
+            "start-up",
+            "seed-funded",
+            "seed funded",
+            "pre-seed",
+            "series a startup",
+            "early-stage company",
+            "early stage company",
+        )
+        return not any(marker in startup_text for marker in startup_markers)
     return False
 
 
@@ -1847,6 +1870,31 @@ def process_naukri_gulf_query(search_query: str, location: str, limit: int | Non
         absolute_url = urljoin("https://www.naukrigulf.com", href)
         if absolute_url not in links:
             links.append(absolute_url)
+
+    # The current Naukri Gulf response is often an HTTP 200 JavaScript shell
+    # with no server-rendered anchors.  A 200 therefore does not mean that the
+    # search results were actually available to the requests-based parser.
+    # Fall back to the browser session just as we do for explicit blocking.
+    if not links:
+        logging.info(
+            "Naukri Gulf returned a JavaScript shell with no job links; trying browser-session scrape."
+        )
+        raw_jobs = _fetch_naukri_gulf_jobs_with_browser(search_query, location, limit=limit)
+        if not raw_jobs:
+            return []
+        try:
+            job_ids_set, company_title_set = supabase_utils.get_existing_jobs_from_supabase()
+        except Exception as exc:
+            logging.warning("Could not fetch existing jobs before Naukri Gulf browser dedupe: %s", exc)
+            job_ids_set, company_title_set = set(), set()
+
+        return [
+            job
+            for job in raw_jobs
+            if not _job_key_exists(job, job_ids_set, company_title_set)
+            and not _job_matches_excluded_title_keywords(job)
+            and _linkedin_job_matches_experience_range(job)
+        ]
 
     if limit is not None:
         links = links[:limit]
