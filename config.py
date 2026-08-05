@@ -542,6 +542,10 @@ DIRECT_JOB_URL_OVERRIDES = {
         "synopsys",
         "senior staff site reliability engineer",
     ): "https://synopsys.avature.net/careers/Login?formValues=&jobId=17592&source=&tags=&user=",
+    (
+        "nvidia",
+        "senior site reliability engineering storage",
+    ): "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Senior-Site-Reliability-Engineering---Storage_JR2018610",
 }
 
 # Official career pages for 30 major IT services and consulting companies.

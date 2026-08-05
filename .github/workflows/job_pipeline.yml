@@ -106,19 +106,23 @@ jobs:
     - name: Refresh Naukri session for this run
       if: matrix.source == 'naukri'
       run: |
-        if [ -n "${NAUKRI_USERNAME:-}" ] && [ -n "${NAUKRI_PASSWORD:-}" ]; then
+        if [ -n "${NAUKRI_STORAGE_STATE_JSON:-}" ]; then
+          echo "Using authenticated NAUKRI_STORAGE_STATE_JSON; skipping unreliable CI auto-login."
+        elif [ -n "${NAUKRI_USERNAME:-}" ] && [ -n "${NAUKRI_PASSWORD:-}" ]; then
           xvfb-run -a python save_browser_session.py naukri --output "$NAUKRI_STORAGE_STATE" --auto-login --wait-seconds 1 || true
         else
-          echo "Naukri credentials are missing; using existing NAUKRI_STORAGE_STATE_JSON if present."
+          echo "Naukri credentials and NAUKRI_STORAGE_STATE_JSON are missing."
         fi
 
     - name: Refresh Naukri Gulf session for this run
       if: matrix.source == 'naukri_gulf'
       run: |
-        if [ -n "${NAUKRI_GULF_USERNAME:-}" ] && [ -n "${NAUKRI_GULF_PASSWORD:-}" ]; then
+        if [ -n "${NAUKRI_GULF_STORAGE_STATE_JSON:-}" ]; then
+          echo "Using authenticated NAUKRI_GULF_STORAGE_STATE_JSON; skipping unreliable CI auto-login."
+        elif [ -n "${NAUKRI_GULF_USERNAME:-}" ] && [ -n "${NAUKRI_GULF_PASSWORD:-}" ]; then
           xvfb-run -a python save_browser_session.py naukri_gulf --output "$NAUKRI_GULF_STORAGE_STATE" --auto-login --wait-seconds 1 || true
         else
-          echo "Naukri Gulf credentials are missing; using existing NAUKRI_GULF_STORAGE_STATE_JSON if present."
+          echo "Naukri Gulf credentials and NAUKRI_GULF_STORAGE_STATE_JSON are missing."
         fi
 
     - name: Run job scraper

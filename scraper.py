@@ -2286,6 +2286,8 @@ def _normalize_workday_job(target: dict, summary: dict, detail: dict | None) -> 
     if "<" in str(description):
         description = convert_html_to_markdown(description)
 
+    direct_job_url = _workday_job_url(target, external_path)
+
     return {
         "job_id": f"workday-{target.get('tenant')}-{target.get('site')}-{_plain_text(job_id).lower().replace(' ', '-')}",
         "company": target.get("name"),
@@ -2295,9 +2297,16 @@ def _normalize_workday_job(target: dict, summary: dict, detail: dict | None) -> 
         "provider": "company_careers_workday",
         "description": description,
         "posted_at": info.get("startDate") or summary.get("postedOn") or "",
-        "job_url": _workday_job_url(target, external_path),
-        "apply_url": _workday_job_url(target, external_path),
+        "job_url": direct_job_url,
+        "apply_url": direct_job_url,
         "career_url": target.get("career_url") or "",
+        # Preserve the exact posting URL even when the Supabase schema lacks
+        # dedicated job_url/apply_url columns.
+        "notes": {
+            "apply_url": direct_job_url,
+            "job_url": direct_job_url,
+            "career_url": target.get("career_url") or "",
+        },
     }
 
 def _fetch_workday_jobs(target: dict) -> list[dict]:

@@ -1,6 +1,7 @@
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -204,6 +205,15 @@ def save_session(
 
         auto_login_done = attempt_auto_login(target, page) if auto_login else False
         if not auto_login_done:
+            # GitHub Actions has no interactive browser/user input. Do not
+            # write an unauthenticated state file there, because its presence
+            # would override a valid *_STORAGE_STATE_JSON repository secret.
+            if auto_login and not sys.stdin.isatty():
+                browser.close()
+                raise RuntimeError(
+                    f"{target}: auto-login failed in a non-interactive environment; "
+                    "preserving the existing storage-state secret."
+                )
             print()
             print(f"Opened {target}: {start_url}")
             print("Complete login in the browser window.")

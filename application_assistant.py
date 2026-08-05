@@ -97,8 +97,17 @@ def _direct_job_url_override(job: dict[str, Any], current_url: str = "") -> str:
     if not override or not current_url:
         return override
 
-    parsed = urlparse(current_url)
-    return override if parsed.netloc.lower() == "careers.synopsys.com" else ""
+    parsed_current = urlparse(current_url)
+    parsed_override = urlparse(override)
+    current_path = parsed_current.path.rstrip("/")
+    override_path = parsed_override.path.rstrip("/")
+    if (
+        not current_path
+        or current_path != override_path
+        or parsed_current.netloc.lower() == "careers.synopsys.com"
+    ):
+        return override
+    return ""
 
 
 def _target_career_url(target: dict[str, Any]) -> str:
@@ -220,11 +229,22 @@ def build_apply_url(job: dict[str, Any]) -> str:
         derived_url = _naukri_job_url(str(job.get("job_id") or ""), provider)
         if derived_url:
             return derived_url
+    notes = job.get("notes")
+    if isinstance(notes, str):
+        try:
+            notes = json.loads(notes)
+        except json.JSONDecodeError:
+            notes = {}
+    notes = notes if isinstance(notes, dict) else {}
+
     explicit_url = str(
         job.get("apply_url")
         or job.get("job_url")
         or job.get("url")
+        or notes.get("apply_url")
+        or notes.get("job_url")
         or job.get("career_url")
+        or notes.get("career_url")
         or ""
     ).strip()
     override_url = _direct_job_url_override(job, explicit_url)
@@ -292,7 +312,7 @@ def _candidate_is_fresh(candidate: ApplicationCandidate, max_age_minutes: int | 
     return age_minutes is not None and 0 <= age_minutes <= max_age_minutes
 
 
-def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
+def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, Any]]:
     if not job_ids:
         return {}
 
@@ -313,7 +333,7 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
             try:
                 response = (
                     supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
-                    .select("job_id, posted_at, scraped_at")
+                    .select("job_id, posted_at, scraped_at, notes")
                     .in_("job_id", job_ids)
                     .execute()
                 )
@@ -324,7 +344,7 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
             logging.warning("Could not load posted_at/scraped_at for candidates: %s", exc)
             return {}
 
-    job_times: dict[str, dict[str, str]] = {}
+    job_times: dict[str, dict[str, Any]] = {}
     for row in response.data or []:
         job_id = str(row.get("job_id") or "")
         if not job_id:
@@ -335,6 +355,7 @@ def _load_job_times(job_ids: list[str]) -> dict[str, dict[str, str]]:
             "apply_url": str(row.get("apply_url") or ""),
             "job_url": str(row.get("job_url") or ""),
             "career_url": str(row.get("career_url") or ""),
+            "notes": row.get("notes"),
         }
     return job_times
 
