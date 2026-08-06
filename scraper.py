@@ -2222,34 +2222,59 @@ def _smartrecruiters_description(job: dict) -> str:
 
 def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
     slug = target.get("slug")
-    per_term_limit = int(getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
-    list_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit={per_term_limit}"
-    payload = _fetch_json(list_url)
-    if not isinstance(payload, dict):
-        return []
-
     jobs = []
-    for summary in payload.get("content", []):
-        if not isinstance(summary, dict) or not summary.get("id"):
-            continue
-        detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{summary['id']}"
-        detail = _fetch_json(detail_url)
-        job = detail if isinstance(detail, dict) else summary
-        jobs.append(
-            {
-                "job_id": f"smartrecruiters-{slug}-{summary['id']}",
-                "company": target.get("name"),
-                "job_title": _plain_text(job.get("name") or summary.get("name")),
-                "location": _smartrecruiters_location(job or summary),
-                "level": _plain_text(job.get("experienceLevel", {}).get("label") if isinstance(job.get("experienceLevel"), dict) else ""),
-                "provider": "company_careers_smartrecruiters",
-                "description": _smartrecruiters_description(job),
-                "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
-                "job_url": job.get("ref") or summary.get("ref"),
-                "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
-                "career_url": target.get("career_url") or "",
-            }
+    seen_ids: set[str] = set()
+    page_size = max(1, min(100, int(target.get("page_size") or 100)))
+    offset = 0
+
+    while True:
+        list_url = (
+            f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+            f"?limit={page_size}&offset={offset}"
         )
+        payload = _fetch_json(list_url)
+        if not isinstance(payload, dict):
+            break
+
+        summaries = payload.get("content")
+        if not isinstance(summaries, list) or not summaries:
+            break
+
+        new_ids_on_page = 0
+        for summary in summaries:
+            if not isinstance(summary, dict) or not summary.get("id"):
+                continue
+            summary_id = str(summary["id"])
+            if summary_id in seen_ids:
+                continue
+            seen_ids.add(summary_id)
+            new_ids_on_page += 1
+
+            detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{summary_id}"
+            detail = _fetch_json(detail_url)
+            job = detail if isinstance(detail, dict) else summary
+            jobs.append(
+                {
+                    "job_id": f"smartrecruiters-{slug}-{summary_id}",
+                    "company": target.get("name"),
+                    "job_title": _plain_text(job.get("name") or summary.get("name")),
+                    "location": _smartrecruiters_location(job or summary),
+                    "level": _plain_text(job.get("experienceLevel", {}).get("label") if isinstance(job.get("experienceLevel"), dict) else ""),
+                    "provider": "company_careers_smartrecruiters",
+                    "description": _smartrecruiters_description(job),
+                    "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
+                    "job_url": job.get("ref") or summary.get("ref"),
+                    "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
+                    "career_url": target.get("career_url") or "",
+                }
+            )
+
+        offset += len(summaries)
+        total_found = payload.get("totalFound")
+        if isinstance(total_found, int) and offset >= total_found:
+            break
+        if len(summaries) < page_size or new_ids_on_page == 0:
+            break
     return jobs
 
 def _workday_job_url(target: dict, external_path: str) -> str:
@@ -2321,37 +2346,61 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
     seen_ids: set[str] = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
     applied_facets = target.get("facets") if isinstance(target.get("facets"), dict) else {}
-    per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
+    page_size = max(1, min(20, int(target.get("page_size") or 20)))
     for search_text in search_terms:
-        payload = _post_json(
-            list_url,
-            {
-                "appliedFacets": applied_facets,
-                "limit": per_term_limit,
-                "offset": 0,
-                "searchText": str(search_text),
-            },
-        )
-        if not isinstance(payload, dict):
-            continue
-        for summary in payload.get("jobPostings", []):
-            if not isinstance(summary, dict):
-                continue
-            external_path = summary.get("externalPath") or ""
-            dedupe_key = external_path or summary.get("title")
-            if not dedupe_key or dedupe_key in seen_ids:
-                continue
-            seen_ids.add(str(dedupe_key))
+        offset = 0
+        seen_page_signatures: set[tuple[str, ...]] = set()
+        while True:
+            payload = _post_json(
+                list_url,
+                {
+                    "appliedFacets": applied_facets,
+                    "limit": page_size,
+                    "offset": offset,
+                    "searchText": str(search_text),
+                },
+            )
+            if not isinstance(payload, dict):
+                break
 
-            detail = None
-            if external_path:
-                detail_url = f"https://{host}/wday/cxs/{tenant}/{site}{external_path}"
-                detail_payload = _fetch_json(detail_url)
-                detail = detail_payload if isinstance(detail_payload, dict) else None
+            summaries = payload.get("jobPostings")
+            if not isinstance(summaries, list) or not summaries:
+                break
 
-            job_details = _normalize_workday_job(target, summary, detail)
-            if job_details:
-                jobs.append(job_details)
+            page_signature = tuple(
+                str(summary.get("externalPath") or summary.get("title") or "")
+                for summary in summaries
+                if isinstance(summary, dict)
+            )
+            if not page_signature or page_signature in seen_page_signatures:
+                break
+            seen_page_signatures.add(page_signature)
+
+            for summary in summaries:
+                if not isinstance(summary, dict):
+                    continue
+                external_path = summary.get("externalPath") or ""
+                dedupe_key = external_path or summary.get("title")
+                if not dedupe_key or str(dedupe_key) in seen_ids:
+                    continue
+                seen_ids.add(str(dedupe_key))
+
+                detail = None
+                if external_path:
+                    detail_url = f"https://{host}/wday/cxs/{tenant}/{site}{external_path}"
+                    detail_payload = _fetch_json(detail_url)
+                    detail = detail_payload if isinstance(detail_payload, dict) else None
+
+                job_details = _normalize_workday_job(target, summary, detail)
+                if job_details:
+                    jobs.append(job_details)
+
+            offset += len(summaries)
+            total = payload.get("total")
+            if isinstance(total, int) and offset >= total:
+                break
+            if len(summaries) < page_size:
+                break
     return jobs
 
 def _normalize_jibe_job(target: dict, card) -> dict | None:
