@@ -30,7 +30,10 @@ class CompanyCareerPaginationTests(unittest.TestCase):
                 "location": {"city": "Bengaluru", "country": "in"},
             }
 
-        with patch.object(scraper, "_fetch_json", side_effect=fake_fetch_json):
+        with (
+            patch.object(scraper, "_fetch_json", side_effect=fake_fetch_json),
+            patch.object(scraper, "_company_career_summary_might_match", return_value=True),
+        ):
             jobs = scraper._fetch_smartrecruiters_jobs(
                 {"name": "Example", "slug": "example", "career_url": "https://jobs.example"}
             )
@@ -77,11 +80,35 @@ class CompanyCareerPaginationTests(unittest.TestCase):
         with (
             patch.object(scraper, "_post_json", side_effect=fake_post_json),
             patch.object(scraper, "_fetch_json", side_effect=fake_fetch_json),
+            patch.object(scraper, "_company_career_summary_might_match", return_value=True),
         ):
             jobs = scraper._fetch_workday_jobs(target)
 
         self.assertEqual(len(jobs), 21)
         self.assertEqual(requested_offsets, [0, 20])
+
+    def test_smartrecruiters_skips_details_for_irrelevant_summaries(self):
+        list_calls = []
+
+        def fake_fetch_json(url):
+            list_calls.append(url)
+            return {
+                "content": [
+                    {
+                        "id": "1",
+                        "name": "Sales Director",
+                        "location": {"city": "Munich", "country": "de"},
+                        "releasedDate": "2026-08-07T00:00:00Z",
+                    }
+                ],
+                "totalFound": 1,
+            }
+
+        with patch.object(scraper, "_fetch_json", side_effect=fake_fetch_json):
+            jobs = scraper._fetch_smartrecruiters_jobs({"name": "Example", "slug": "example"})
+
+        self.assertEqual(jobs, [])
+        self.assertEqual(len(list_calls), 1)
 
 
 if __name__ == "__main__":

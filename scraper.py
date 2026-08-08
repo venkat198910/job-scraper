@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode, urljoin
 import app_settings
 
@@ -1973,6 +1974,65 @@ def _job_matches_company_career_keywords(job_details: dict) -> bool:
     haystack = f"{title}\n{level}\n{description}"
     return any(keyword in haystack for keyword in strong_description_keywords)
 
+
+def _company_career_summary_might_match(
+    title: object,
+    location: object,
+    posted_at: object,
+) -> bool:
+    """Reject clearly irrelevant summaries before downloading job details."""
+    summary = {
+        "job_title": _plain_text(title),
+        "location": _plain_text(location),
+        "posted_at": posted_at,
+    }
+    if _job_matches_excluded_title_keywords(summary):
+        return False
+
+    normalized_title = summary["job_title"].lower()
+    title_keywords = (
+        getattr(config, "COMPANY_CAREER_TITLE_KEYWORDS", None)
+        or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
+    )
+    generic_engineering_titles = (
+        "software engineer",
+        "senior software engineer",
+        "staff software engineer",
+        "principal software engineer",
+        "technical lead",
+        "engineering manager",
+    )
+    if not any(str(keyword).lower() in normalized_title for keyword in title_keywords) and not any(
+        generic_title in normalized_title for generic_title in generic_engineering_titles
+    ):
+        return False
+
+    normalized_location = summary["location"].lower()
+    ambiguous_locations = ("multiple location", "various location", "remote", "hybrid")
+    if (
+        normalized_location
+        and not any(marker in normalized_location for marker in ambiguous_locations)
+        and not _job_matches_company_career_location(summary)
+    ):
+        return False
+
+    if posted_at:
+        parsed_posted_at = _parse_company_career_posted_at(posted_at)
+        job_expiry_days = app_settings.get_advanced_int("jobExpiryDays")
+        if (
+            parsed_posted_at
+            and job_expiry_days > 0
+            and parsed_posted_at < datetime.now(timezone.utc) - timedelta(days=job_expiry_days)
+        ):
+            return False
+
+    return True
+
+
+def _company_career_detail_workers(item_count: int) -> int:
+    configured = int(getattr(config, "COMPANY_CAREER_DETAIL_WORKERS", 8) or 8)
+    return max(1, min(configured, item_count))
+
 def _job_matches_company_career_location(job_details: dict) -> bool:
     location = (job_details.get("location") or "").lower()
     if not location:
@@ -2226,6 +2286,28 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
     seen_ids: set[str] = set()
     page_size = max(1, min(100, int(target.get("page_size") or 100)))
     offset = 0
+    page_count = 0
+    summary_count = 0
+    candidate_count = 0
+
+    def fetch_detail(summary: dict) -> dict:
+        summary_id = str(summary["id"])
+        detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{summary_id}"
+        detail = _fetch_json(detail_url)
+        job = detail if isinstance(detail, dict) else summary
+        return {
+            "job_id": f"smartrecruiters-{slug}-{summary_id}",
+            "company": target.get("name"),
+            "job_title": _plain_text(job.get("name") or summary.get("name")),
+            "location": _smartrecruiters_location(job or summary),
+            "level": _plain_text(job.get("experienceLevel", {}).get("label") if isinstance(job.get("experienceLevel"), dict) else ""),
+            "provider": "company_careers_smartrecruiters",
+            "description": _smartrecruiters_description(job),
+            "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
+            "job_url": job.get("ref") or summary.get("ref"),
+            "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
+            "career_url": target.get("career_url") or "",
+        }
 
     while True:
         list_url = (
@@ -2239,8 +2321,11 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
         summaries = payload.get("content")
         if not isinstance(summaries, list) or not summaries:
             break
+        page_count += 1
+        summary_count += len(summaries)
 
         new_ids_on_page = 0
+        candidates = []
         for summary in summaries:
             if not isinstance(summary, dict) or not summary.get("id"):
                 continue
@@ -2249,25 +2334,17 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
                 continue
             seen_ids.add(summary_id)
             new_ids_on_page += 1
+            if _company_career_summary_might_match(
+                summary.get("name"),
+                _smartrecruiters_location(summary),
+                summary.get("releasedDate"),
+            ):
+                candidates.append(summary)
 
-            detail_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{summary_id}"
-            detail = _fetch_json(detail_url)
-            job = detail if isinstance(detail, dict) else summary
-            jobs.append(
-                {
-                    "job_id": f"smartrecruiters-{slug}-{summary_id}",
-                    "company": target.get("name"),
-                    "job_title": _plain_text(job.get("name") or summary.get("name")),
-                    "location": _smartrecruiters_location(job or summary),
-                    "level": _plain_text(job.get("experienceLevel", {}).get("label") if isinstance(job.get("experienceLevel"), dict) else ""),
-                    "provider": "company_careers_smartrecruiters",
-                    "description": _smartrecruiters_description(job),
-                    "posted_at": job.get("releasedDate") or summary.get("releasedDate") or "",
-                    "job_url": job.get("ref") or summary.get("ref"),
-                    "apply_url": job.get("applyUrl") or job.get("ref") or summary.get("ref"),
-                    "career_url": target.get("career_url") or "",
-                }
-            )
+        candidate_count += len(candidates)
+        if candidates:
+            with ThreadPoolExecutor(max_workers=_company_career_detail_workers(len(candidates))) as executor:
+                jobs.extend(executor.map(fetch_detail, candidates))
 
         offset += len(summaries)
         total_found = payload.get("totalFound")
@@ -2275,6 +2352,14 @@ def _fetch_smartrecruiters_jobs(target: dict) -> list[dict]:
             break
         if len(summaries) < page_size or new_ids_on_page == 0:
             break
+    logging.info(
+        "SmartRecruiters target %s: pages=%s summaries=%s detail_requests=%s jobs=%s",
+        target.get("name"),
+        page_count,
+        summary_count,
+        candidate_count,
+        len(jobs),
+    )
     return jobs
 
 def _workday_job_url(target: dict, external_path: str) -> str:
@@ -2347,6 +2432,19 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
     applied_facets = target.get("facets") if isinstance(target.get("facets"), dict) else {}
     page_size = max(1, min(20, int(target.get("page_size") or 20)))
+    page_count = 0
+    summary_count = 0
+    candidate_count = 0
+
+    def fetch_detail(summary: dict) -> dict | None:
+        external_path = summary.get("externalPath") or ""
+        detail = None
+        if external_path:
+            detail_url = f"https://{host}/wday/cxs/{tenant}/{site}{external_path}"
+            detail_payload = _fetch_json(detail_url)
+            detail = detail_payload if isinstance(detail_payload, dict) else None
+        return _normalize_workday_job(target, summary, detail)
+
     for search_text in search_terms:
         offset = 0
         seen_page_signatures: set[tuple[str, ...]] = set()
@@ -2366,6 +2464,8 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
             summaries = payload.get("jobPostings")
             if not isinstance(summaries, list) or not summaries:
                 break
+            page_count += 1
+            summary_count += len(summaries)
 
             page_signature = tuple(
                 str(summary.get("externalPath") or summary.get("title") or "")
@@ -2376,6 +2476,7 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
                 break
             seen_page_signatures.add(page_signature)
 
+            candidates = []
             for summary in summaries:
                 if not isinstance(summary, dict):
                     continue
@@ -2384,16 +2485,17 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
                 if not dedupe_key or str(dedupe_key) in seen_ids:
                     continue
                 seen_ids.add(str(dedupe_key))
+                if _company_career_summary_might_match(
+                    summary.get("title"),
+                    summary.get("locationsText"),
+                    summary.get("postedOn"),
+                ):
+                    candidates.append(summary)
 
-                detail = None
-                if external_path:
-                    detail_url = f"https://{host}/wday/cxs/{tenant}/{site}{external_path}"
-                    detail_payload = _fetch_json(detail_url)
-                    detail = detail_payload if isinstance(detail_payload, dict) else None
-
-                job_details = _normalize_workday_job(target, summary, detail)
-                if job_details:
-                    jobs.append(job_details)
+            candidate_count += len(candidates)
+            if candidates:
+                with ThreadPoolExecutor(max_workers=_company_career_detail_workers(len(candidates))) as executor:
+                    jobs.extend(job for job in executor.map(fetch_detail, candidates) if job)
 
             offset += len(summaries)
             total = payload.get("total")
@@ -2401,6 +2503,14 @@ def _fetch_workday_jobs(target: dict) -> list[dict]:
                 break
             if len(summaries) < page_size:
                 break
+    logging.info(
+        "Workday target %s: pages=%s summaries=%s detail_requests=%s jobs=%s",
+        target.get("name"),
+        page_count,
+        summary_count,
+        candidate_count,
+        len(jobs),
+    )
     return jobs
 
 def _normalize_jibe_job(target: dict, card) -> dict | None:
@@ -3022,7 +3132,15 @@ def process_company_careers(
         target = _with_career_url(target)
 
         logging.info("Scraping company careers target: %s (%s)", target.get("name"), target.get("ats"))
-        for details in _fetch_company_career_target_jobs(target):
+        target_started_at = time.monotonic()
+        target_jobs = _fetch_company_career_target_jobs(target)
+        logging.info(
+            "Company careers target finished: %s fetched=%s elapsed=%.2fs",
+            target.get("name"),
+            len(target_jobs),
+            time.monotonic() - target_started_at,
+        )
+        for details in target_jobs:
             if limit is not None and len(detailed_new_jobs) >= limit:
                 break
             if not details.get("job_id") or str(details["job_id"]) in job_ids_set:
