@@ -109,7 +109,7 @@ def _clean_headline_role(job_title: str) -> str:
 def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | None = None) -> str:
     """Build a concise JD-aligned header line without inventing experience."""
     role = _clean_headline_role(str(job_details.get("job_title") or ""))
-    haystack = " ".join(
+    job_haystack = " ".join(
         str(value or "")
         for value in [
             job_details.get("job_title"),
@@ -118,7 +118,19 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
         ]
     ).lower()
 
-    if re.search(r"\bsenior\b", haystack) and not re.search(r"\bsenior\b", role, re.IGNORECASE):
+    # A headline may emphasize a JD keyword only when the resume contains
+    # delivery evidence for it. Certifications and the skills list alone are
+    # intentionally excluded so the headline never overstates experience.
+    evidence_haystack = ""
+    if resume_data:
+        evidence_parts = []
+        for exp in resume_data.experience or []:
+            evidence_parts.extend([exp.job_title, exp.description])
+        for project in resume_data.projects or []:
+            evidence_parts.extend([project.name, project.description, " ".join(project.technologies or [])])
+        evidence_haystack = " ".join(str(value or "") for value in evidence_parts).lower()
+
+    if re.search(r"\bsenior\b", job_haystack) and not re.search(r"\bsenior\b", role, re.IGNORECASE):
         role = f"Senior {role}"
 
     theme_candidates = [
@@ -138,13 +150,22 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
 
     themes: list[str] = []
     for keywords, label in theme_candidates:
-        if any(keyword in haystack for keyword in keywords) and label not in themes:
+        requested = any(keyword in job_haystack for keyword in keywords)
+        supported = any(keyword in evidence_haystack for keyword in keywords)
+        if requested and supported and label not in themes:
             themes.append(label)
         if len(themes) >= 2:
             break
 
     if len(themes) < 2:
-        for fallback in ["Kubernetes", "CI/CD Automation", "Infrastructure Automation"]:
+        for keywords, fallback in theme_candidates:
+            if any(keyword in evidence_haystack for keyword in keywords) and fallback not in themes:
+                themes.append(fallback)
+            if len(themes) >= 2:
+                break
+
+    if len(themes) < 2:
+        for fallback in ["Kubernetes", "CI/CD Automation"]:
             if fallback not in themes:
                 themes.append(fallback)
             if len(themes) >= 2:
@@ -190,6 +211,11 @@ def _clean_resume_bullets(text: str) -> str:
     for raw_line in str(text).replace("\r", "\n").splitlines():
         line = raw_line.strip(" -*\u2022\u25aa\u25ab\u25e6\t")
         line = re.sub(r"\s+", " ", line).strip()
+        line = re.sub(r"\bIAC\b", "IaC", line)
+        line = re.sub(r"^Lead production incident\b", "Led production incident", line, flags=re.IGNORECASE)
+        line = re.sub(r"\s*&\s*", " and ", line)
+        line = re.sub(r",\s+accelerated\b", ", accelerating", line, flags=re.IGNORECASE)
+        line = re.sub(r",\s+strengthened\b", ", strengthening", line, flags=re.IGNORECASE)
         if not line:
             continue
 
@@ -200,6 +226,68 @@ def _clean_resume_bullets(text: str) -> str:
             lines.append(line)
 
     return "\n".join(lines)
+
+
+def _normalized_skill_key(skill: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(skill or "").lower())
+
+
+def merge_verified_skills(
+    personalized_skills: List[str],
+    base_skills: List[str],
+    job_details: Dict[str, Any],
+    limit: int = 36,
+) -> List[str]:
+    """Keep only profile-verified skills, ordered by JD relevance then profile order."""
+    verified: Dict[str, str] = {}
+    for skill in base_skills or []:
+        key = _normalized_skill_key(skill)
+        if key and key not in verified:
+            verified[key] = skill.strip()
+
+    candidates: List[str] = []
+    for skill in [*(personalized_skills or []), *(base_skills or [])]:
+        key = _normalized_skill_key(skill)
+        if key in verified and verified[key] not in candidates:
+            candidates.append(verified[key])
+
+    job_text = " ".join(str(job_details.get(key) or "") for key in ("job_title", "description", "level")).lower()
+    relevant = [skill for skill in candidates if skill.lower() in job_text]
+    remaining = [skill for skill in candidates if skill not in relevant]
+    return (relevant + remaining)[:limit]
+
+
+def build_evidence_based_summary(resume_data: Resume) -> str:
+    """Create a concise summary from demonstrated experience and certifications."""
+    evidence = " ".join(
+        str(value or "")
+        for exp in (resume_data.experience or [])
+        for value in (exp.job_title, exp.description)
+    ).lower()
+    tools = [
+        ("AWS", ("aws", "amazon web services", "eks")),
+        ("Terraform", ("terraform",)),
+        ("Kubernetes", ("kubernetes", "eks", "gke", "aks")),
+        ("CI/CD", ("ci/cd", "cicd", "jenkins", "github actions")),
+        ("Docker", ("docker",)),
+        ("Ansible", ("ansible",)),
+        ("Prometheus", ("prometheus",)),
+        ("Grafana", ("grafana",)),
+    ]
+    demonstrated = [label for label, terms in tools if any(term in evidence for term in terms)]
+    focus = ", ".join(demonstrated[:6]) or "cloud infrastructure, automation, and production operations"
+
+    cert_names = [str(cert.name).strip() for cert in (resume_data.certifications or []) if getattr(cert, "name", None)]
+    certification_sentence = ""
+    if cert_names:
+        certification_sentence = " Holds " + ", ".join(cert_names[:3]) + " certifications."
+
+    return (
+        f"DevOps and platform engineering professional with {_configured_total_experience_phrase()} of experience "
+        f"delivering infrastructure automation, container platforms, CI/CD, and production reliability. "
+        f"Hands-on delivery experience includes {focus}."
+        f"{certification_sentence}"
+    )
 
 
 def sanitize_resume_content(resume_data: Resume) -> Resume:
@@ -594,6 +682,12 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             return 
 
         personalized_resume_data = sanitize_resume_content(personalized_resume_data)
+        personalized_resume_data.skills = merge_verified_skills(
+            personalized_resume_data.skills,
+            base_resume_details.skills,
+            job_details,
+        )
+        personalized_resume_data.summary = build_evidence_based_summary(personalized_resume_data)
         personalized_resume_data.professional_title = build_professional_title(job_details, personalized_resume_data)
 
         # 2. Generate PDF

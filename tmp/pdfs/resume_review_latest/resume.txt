@@ -1,0 +1,87 @@
+                                       VENKATESWARLU DERANGULA
+                                           Senior DevOps Engineer | GCP | Kubernetes
+           vderangula44@gmail.com • +91 7780569119 • www.linkedin.com/in/venkateswarlu-derangula • India • Open to Relocation
+
+
+                                                                  Summary
+A DevOps professional with around 10 years of experience in cloud infrastructure security and automation, expert in GCP, Terraform, and
+Kubernetes. Proven ability to provision secure AWS infrastructure via Terraform and lead Kubernetes platform engineering. Seeking a Senior
+Consultant role at Deloitte to leverage expertise in GCP security, DevSecOps, and CI/CD integration to protect and secure client cloud
+environments.
+
+
+                                                               Certifications
+AWS Certified Solutions Architect – Professional
+Certified Kubernetes Administrator (CKA)
+Google Cloud Certified Professional Cloud Architect
+
+
+                                                          Key Achievements
+   Infrastructure Automation Success                   Kubernetes Availability Excellence                    CI/CD Transformation Impact
+      Provisioned scalable, secure AWS                 Led Kubernetes platform engineering,               Orchestrated API gateway and ingress
+infrastructure via Terraform, achieving full IAC     managing production-grade EKS clusters to           architecture to securely handle over 100K
+ adoption and reducing manual effort by 75%.               maintain 99.99% availability.                        microservices requests daily.
+
+
+
+                                                                 Experience
+Infinite Computer Solutions                                                                                                            Bengaluru
+Technical Lead                                                                                                                   09/2023 - Present
+A leading provider of IT solutions and services
+• Provisioned scalable, secure AWS infrastructure via Terraform, achieving full IAC adoption and reducing manual effort by 75%.
+• Led Kubernetes platform engineering, managing production-grade EKS clusters to maintain 99.99% availability.
+• Orchestrated API gateway and ingress architecture to securely handle over 100K microservices requests daily.
+• Drove CI/CD transformation by migrating Jenkins to GitHub Actions, standardizing workflows, enhancing security, and enabling daily releases.
+• Created centralized observability systems, enhancing monitoring and reducing MTTR through tools like ELK, Prometheus, and Grafana.
+• Integrated MLOps workflows into Kubernetes platforms for automating machine learning model training, validation, and deployment.
+Capgemini Technology Solutions                                                                                                          Bengaluru
+Professional II                                                                                                                  07/2022 - 09/2023
+A global leader in consulting, digital transformation, technology and engineering services
+• Implemented CI/CD pipelines using Jenkins, Docker, Git, and Kubernetes, accelerated deployment velocity by 40% across digital platforms.
+• Automated cloud infrastructure provisioning on AWS using Terraform, ensuring scalable, resilient, and standardized environments.
+• Streamlined Kubernetes deployment processes through Helm standardization, reducing release inconsistencies and deployment failures.
+• Instituted monitoring and observability frameworks using Prometheus and Grafana, strengthened system reliability and incident response.
+• Lead production incident management and root cause analysis, reducing recurring issues by 25% and improving system stability.
+Societe Generale                                                                                                                         Bengaluru
+Specialist Software Engineer                                                                                                      01/2022 - 06/2022
+A leading financial services company providing solutions in investment banking and asset management
+• Established Git branching strategies and code review frameworks, improving collaboration efficiency and reducing merge conflicts by 40%.
+• Led migration of on-premise applications to AWS (EC2, S3, RDS, Lambda), optimizing infrastructure costs by 25% while enhancing scalability.
+• Automated configuration management using Ansible, reducing manual efforts by 70% and ensuring deployment consistency.
+• Improved Kubernetes-based container orchestration, improving resource utilization by 30% and minimizing deployment failures.
+                                                                  Experience
+Motorola Solutions (Kodiak Networks)                                                                                                           Bengaluru
+Analyst – Customer Success                                                                                                           12/2020 - 01/2022
+A global leader in communications equipment and software, providing technologies that enable public safety
+• Streamlined workflows through Git-based version control strategies, reducing merge conflicts by 30% & improving collaboration.
+• Managed and optimized Jenkins-driven CI/CD pipelines, reducing release cycle times by 40%.
+• Designed and deployed Kubernetes clusters on AWS (EKS), achieving 99.9% uptime and enhanced application scalability.
+• Led containerization initiatives using Docker, ensuring environment consistency across development, testing, and production.
+• Orchestrated container workloads on Kubernetes, enabling horizontal scaling and improving system reliability by 25%.
+• Collaborated with QA teams to implement automated testing frameworks, reducing post-release defects by 35%.
+BNP Paribas                                                                                                                                     Chennai
+Associate Level I                                                                                                                    08/2018 - 04/2020
+A multinational banking and financial services company
+• Developed Jenkins pipelines as code, automating build, test, and deployment workflows, reducing release timelines by 40%.
+• Enabled automation in microservices environments using Jenkins and Git, improving release frequency and reducing errors by 30%.
+• Enforced JFrog Artifactory for artifact lifecycle management, accelerating package distribution and improving delivery efficiency by 25%.
+• Established monitoring frameworks using Prometheus and Grafana, enhancing proactive issue detection & reducing bottlenecks by 35%.
+State Street HCL Services                                                                                                               Chennai, India
+Sr Analyst                                                                                                                           09/2017 - 07/2018
+• Performed Linux system installation, configuration, and management.
+• Increased system stability by 75% through managing 250 package installations and conducting 50 kernel upgrades.
+• Troubleshot various issues to minimize downtime.
+State Street HCL Services                                                                                                               Chennai, India
+Analyst                                                                                                                              05/2015 - 12/2016
+• Administered Linux servers ensuring 95%+ SLA adherence.
+• Systematized routine administrative tasks using Shell scripting.
+• Monitored CPU, memory, and disk utilization to prevent outages.
+                                                                     Education
+SV University, Tirupati                                                                                                                          Tirupati
+B.Com. (Computer Applications)                                                                                                                2007 - 2010
+SV University, Tirupati                                                                                                                          Tirupati
+MBA                                                                                                                                           2010 - 2012
+
+                                                                       Skills
+GCP • Terraform • Kubernetes • DevOps • DevSecOps • CI/CD • Python • Bash • AWS • Microservices • IAC
+

@@ -451,8 +451,8 @@ def _draw_reference_experience(
     dates = _format_dates(exp.start_date, exp.end_date)
 
     company_size = 11.8 if not compact else 11.0
-    body_size = 8.2 if not compact else 7.9
-    leading = 9.8 if not compact else 9.1
+    body_size = 9.0 if not compact else 8.4
+    leading = 11.0 if not compact else 10.0
 
     pdf.setFillColor(colors.HexColor("#6F7A7A"))
     pdf.setFont("Helvetica", company_size)
@@ -474,18 +474,15 @@ def _draw_reference_experience(
         pdf.drawRightString(x + width, y, dates)
     y -= 12.5 if not compact else 11.0
 
-    blurb = _company_blurb(company)
-    if blurb:
-        y = _draw_wrapped_text(pdf, blurb, x, y, width, "Helvetica", body_size, leading, max_lines=1)
-        y -= 1.0
-
     for bullet in _split_bullets(exp.description, bullet_count, 150 if compact else 165):
         y = _draw_reference_bullet(pdf, bullet, x, y, width, body_size, leading, max_lines=2)
-    return y - (6 if not compact else 4)
+    # Keep consecutive employers visually distinct without wasting page space.
+    return y - (11 if not compact else 7)
 
 
 def _draw_reference_education(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
     education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
+    education.sort(key=lambda edu: str(edu.end_year or edu.start_year or ""), reverse=True)
     if not education:
         return y
     y = _draw_reference_section(pdf, "Education", x, y, width)
@@ -521,7 +518,7 @@ def _draw_reference_skills(pdf: canvas.Canvas, resume_data: Resume, x: float, y:
     if not skills:
         return y
     y = _draw_reference_section(pdf, "Skills", x, y, width)
-    return _draw_wrapped_text(pdf, " \u2022 ".join(skills[:42]), x, y, width, "Helvetica", 8.2, 10.2, max_lines=4)
+    return _draw_wrapped_text(pdf, " \u2022 ".join(skills[:42]), x, y, width, "Helvetica", 9.0, 11.2, max_lines=4)
 
 
 def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
@@ -532,19 +529,6 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
     content_width = page_width - (2 * margin)
 
     def draw_header(y: float) -> float:
-        photo_path = _profile_photo_path()
-        if os.path.exists(photo_path):
-            photo_size = 68
-            pdf.drawImage(
-                ImageReader(photo_path),
-                (page_width - photo_size) / 2,
-                y - photo_size,
-                width=photo_size,
-                height=photo_size,
-                mask="auto",
-            )
-            y -= photo_size + 16
-
         if _has_value(resume_data.name):
             pdf.setFont("Times-Bold", 16.5)
             pdf.drawCentredString(page_width / 2, y, _clean_text(str(resume_data.name)).upper())
@@ -584,8 +568,8 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
                 y,
                 content_width,
                 "Helvetica",
-                8.4,
-                10.4,
+                9.0,
+                11.2,
                 max_lines=4,
             )
             y -= 20
@@ -593,6 +577,9 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
         return y
 
     y = draw_header(page_height - margin)
+
+    y = _draw_reference_skills(pdf, resume_data, margin, y, content_width)
+    y -= 15
 
     certifications = [cert for cert in (resume_data.certifications or []) if _has_value(cert.name) or _has_value(cert.issuer)]
     if certifications:
@@ -602,43 +589,17 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
             issuer = _clean_text(cert.issuer) if _has_value(cert.issuer) else ""
             if issuer and issuer.lower() != item.lower():
                 item = f"{item} \u2014 {issuer}" if item else issuer
-            pdf.setFillColor(colors.HexColor("#6F7A7A"))
+            pdf.setFillColor(colors.black)
             y = _draw_wrapped_text(pdf, item, margin, y, content_width, "Helvetica", 9.2, 11.0, max_lines=1)
         pdf.setFillColor(colors.black)
         y -= 18
 
-    y = _draw_reference_section(pdf, "Key Achievements", margin, y, content_width)
-    column_gap = 18
-    column_width = (content_width - (2 * column_gap)) / 3
-    achievement_top = y
-    max_column_y = y
-    for index, (title, text) in enumerate(_achievement_items(resume_data)):
-        col_x = margin + index * (column_width + column_gap)
-        pdf.setFont("Helvetica-Bold", 8.6)
-        pdf.setFillColor(colors.black)
-        pdf.drawCentredString(col_x + column_width / 2, y, title)
-        col_y = y - 10
-        col_y = _draw_reference_centered(
-            pdf,
-            text,
-            col_x,
-            col_y,
-            column_width,
-            "Helvetica",
-            8.0,
-            9.5,
-            max_lines=4,
-            fill=colors.HexColor("#444444"),
-        )
-        max_column_y = min(max_column_y, col_y)
-    y = max_column_y - 24
-
     experiences = [exp for exp in (resume_data.experience or []) if _has_value(exp.job_title) or _has_value(exp.description)]
-    page_one_experiences = experiences[:3]
-    page_two_experiences = experiences[3:7]
+    page_one_experiences = experiences[:4]
+    page_two_experiences = experiences[4:7]
 
     y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
-    page_one_bullet_counts = [6, 5, 4]
+    page_one_bullet_counts = [6, 5, 4, 6]
     for index, exp in enumerate(page_one_experiences):
         y = _draw_reference_experience(
             pdf,
@@ -647,23 +608,20 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
             y,
             content_width,
             page_one_bullet_counts[index],
-            compact=index >= 2,
+            compact=False,
         )
 
     pdf.showPage()
 
     y = page_height - margin - 5
     y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
-    page_two_bullet_counts = [6, 4, 3, 3]
+    page_two_bullet_counts = [5, 4, 4]
     for index, exp in enumerate(page_two_experiences):
         count = page_two_bullet_counts[index] if index < len(page_two_bullet_counts) else 3
-        y = _draw_reference_experience(pdf, exp, margin, y, content_width, count, compact=True)
+        y = _draw_reference_experience(pdf, exp, margin, y, content_width, count, compact=False)
 
     if y > (1.95 * inch):
         y = _draw_reference_education(pdf, resume_data, margin, y, content_width)
-    if y > (0.75 * inch):
-        _draw_reference_skills(pdf, resume_data, margin, y, content_width)
-
     pdf.save()
     pdf_bytes = buffer.getvalue()
     buffer.close()

@@ -3,7 +3,12 @@ import logging
 import time
 
 import config
-from custom_resume_generator import _enforce_total_experience, build_professional_title
+from custom_resume_generator import (
+    build_evidence_based_summary,
+    build_professional_title,
+    merge_verified_skills,
+    sanitize_resume_content,
+)
 import pdf_generator
 import supabase_utils
 from models import Resume
@@ -35,7 +40,14 @@ def _execute_with_retries(query, action: str, attempts: int = 4):
     raise RuntimeError(f"{action} failed after {attempts} attempts") from last_exc
 
 
-def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -> list[dict]:
+def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100, resume_id: str | None = None) -> list[dict]:
+    if resume_id:
+        response = _execute_with_retries(
+            supabase_utils.supabase.table(config.SUPABASE_CUSTOMIZED_RESUMES_TABLE_NAME)
+            .select("*").eq("id", resume_id),
+            f"fetch customized resume id={resume_id}",
+        )
+        return response.data or []
     rows: list[dict] = []
     offset = 0
 
@@ -60,6 +72,16 @@ def _fetch_customized_resumes(limit: int | None = None, batch_size: int = 100) -
         offset += batch_size
 
     return rows
+
+
+def _resume_id_for_job(job_id: str) -> str | None:
+    response = _execute_with_retries(
+        supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+        .select("customized_resume_id").eq("job_id", job_id).limit(1),
+        f"fetch customized resume id for job={job_id}",
+    )
+    rows = response.data or []
+    return str(rows[0].get("customized_resume_id")) if rows and rows[0].get("customized_resume_id") else None
 
 
 def _fetch_job_metadata_by_resume_id() -> dict[str, dict]:
@@ -97,33 +119,33 @@ def _new_resume_path(record: dict, job_metadata: dict | None = None) -> str:
     )
 
 
-def _fetch_current_profile_certifications() -> list:
+def _fetch_current_profile() -> Resume | None:
     base_resume = supabase_utils.get_base_resume()
     if not base_resume:
         logging.warning(
             "Current base resume is unavailable; existing customized-resume certifications will be preserved."
         )
-        return []
+        return None
 
     try:
-        return Resume.model_validate(base_resume).certifications
+        return Resume.model_validate(base_resume)
     except Exception as exc:
         logging.warning(
             "Current base-resume certifications could not be parsed; existing values will be preserved: %s",
             exc,
         )
-        return []
+        return None
 
 
-def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bool = False) -> tuple[int, int]:
-    records = _fetch_customized_resumes(limit=limit)
+def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bool = False, resume_id: str | None = None) -> tuple[int, int]:
+    records = _fetch_customized_resumes(limit=limit, resume_id=resume_id)
     logging.info("Found %s customized resume record(s).", len(records))
     job_metadata_by_resume_id = _fetch_job_metadata_by_resume_id()
     logging.info("Found job metadata for %s customized resume record(s).", len(job_metadata_by_resume_id))
-    profile_certifications = _fetch_current_profile_certifications()
+    profile = _fetch_current_profile()
     logging.info(
         "Loaded %s certification(s) from the current profile for existing resume regeneration.",
-        len(profile_certifications),
+        len(profile.certifications) if profile else 0,
     )
 
     updated = 0
@@ -132,13 +154,16 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
         resume_id = record.get("id")
         try:
             resume_data = Resume.model_validate(record)
-            if profile_certifications:
+            if profile:
                 resume_data.certifications = [
                     certification.model_copy(deep=True)
-                    for certification in profile_certifications
+                    for certification in profile.certifications
                 ]
-            resume_data.summary = _enforce_total_experience(resume_data.summary)
             job_metadata = job_metadata_by_resume_id.get(str(resume_id), {})
+            resume_data = sanitize_resume_content(resume_data)
+            if profile:
+                resume_data.skills = merge_verified_skills(resume_data.skills, profile.skills, job_metadata)
+            resume_data.summary = build_evidence_based_summary(resume_data)
             resume_data.professional_title = build_professional_title(job_metadata, resume_data)
             pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
             destination_path = _new_resume_path(record, job_metadata)
@@ -158,6 +183,7 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
                     {
                         "resume_link": uploaded_path,
                         "summary": resume_data.summary,
+                        "skills": resume_data.skills,
                         "certifications": [
                             certification.model_dump(exclude_none=True)
                             for certification in resume_data.certifications
@@ -182,10 +208,18 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
 def main() -> int:
     parser = argparse.ArgumentParser(description="Regenerate existing customized resume PDFs with the current PDF template.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N customized resumes.")
+    parser.add_argument("--resume-id", default=None, help="Only regenerate one customized resume ID.")
+    parser.add_argument("--job-id", default=None, help="Only regenerate the customized resume attached to one job ID.")
     parser.add_argument("--dry-run", action="store_true", help="Build and validate without uploading/updating Supabase.")
     args = parser.parse_args()
 
-    updated, failed = regenerate_existing_custom_resume_pdfs(limit=args.limit, dry_run=args.dry_run)
+    resume_id = args.resume_id
+    if args.job_id:
+        resume_id = _resume_id_for_job(args.job_id)
+        if not resume_id:
+            logging.error("No customized resume is attached to job_id=%s", args.job_id)
+            return 1
+    updated, failed = regenerate_existing_custom_resume_pdfs(limit=args.limit, dry_run=args.dry_run, resume_id=resume_id)
     logging.info("Finished. updated=%s failed=%s", updated, failed)
     if failed:
         logging.warning(
