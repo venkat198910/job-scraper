@@ -163,7 +163,7 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
             resume_data = sanitize_resume_content(resume_data)
             if profile:
                 resume_data.skills = merge_verified_skills(resume_data.skills, profile.skills, job_metadata)
-            resume_data.summary = build_evidence_based_summary(resume_data)
+            resume_data.summary = build_evidence_based_summary(resume_data, job_metadata)
             resume_data.professional_title = build_professional_title(job_metadata, resume_data)
             pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
             destination_path = _new_resume_path(record, job_metadata)

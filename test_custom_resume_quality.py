@@ -31,6 +31,25 @@ class CustomResumeQualityTests(unittest.TestCase):
         self.assertNotIn("GCP", title)
         self.assertTrue(any(skill in title for skill in ("AWS", "Terraform", "Kubernetes", "CI/CD")))
 
+    def test_azure_profile_capabilities_are_prioritized_for_azure_jd(self):
+        self.resume.skills.extend(["Azure", "Azure DevOps", "ARM Templates", "AKS"])
+        job = {
+            "job_title": "Senior Engineer I, Software Tools and Methods",
+            "description": "Azure, Azure DevOps, Terraform, Kubernetes, and GitHub Actions",
+        }
+
+        skills = merge_verified_skills(
+            self.resume.skills,
+            self.resume.skills,
+            job,
+        )
+        title = build_professional_title(job, self.resume)
+        summary = build_evidence_based_summary(self.resume, job)
+
+        self.assertEqual(skills[:4], ["Azure", "Azure DevOps", "ARM Templates", "AKS"])
+        self.assertIn("Azure", title)
+        self.assertIn("Profile-aligned Azure capabilities include Azure, Azure DevOps, ARM Templates, AKS.", summary)
+
     def test_summary_is_evidence_based_and_uses_requested_tenure(self):
         summary = build_evidence_based_summary(self.resume)
         self.assertIn("around 10 years", summary)

@@ -480,6 +480,26 @@ def _draw_reference_experience(
     return y - (11 if not compact else 7)
 
 
+def _reference_experience_height(exp, width: float, bullet_count: int, compact: bool = False) -> float:
+    """Return the vertical space used by one complete experience entry."""
+    body_size = 9.0 if not compact else 8.4
+    leading = 11.0 if not compact else 10.0
+    height = (13.0 if not compact else 12.0) + (12.5 if not compact else 11.0)
+    for bullet in _split_bullets(exp.description, bullet_count, 150 if compact else 165):
+        wrapped_lines = _wrap_text(bullet, "Helvetica", body_size, width - 12)
+        height += min(len(wrapped_lines), 2) * leading
+    return height + (11 if not compact else 7)
+
+
+def _reference_top_padding(resume_data: Resume) -> float:
+    """Keep a readable top gap while reclaiming space for content-heavy resumes."""
+    content_length = len(_clean_text(resume_data.summary))
+    content_length += sum(len(_clean_text(skill)) for skill in (resume_data.skills or []))
+    content_length += sum(len(_clean_text(exp.description)) for exp in (resume_data.experience or []))
+    density = min(max((content_length - 1800) / 4200, 0.0), 1.0)
+    return 46.0 - (16.0 * density)
+
+
 def _draw_reference_education(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float, width: float) -> float:
     education = [edu for edu in (resume_data.education or []) if _has_value(edu.degree) or _has_value(edu.institution)]
     education.sort(key=lambda edu: str(edu.end_year or edu.start_year or ""), reverse=True)
@@ -576,7 +596,8 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
 
         return y
 
-    y = draw_header(page_height - margin)
+    top_padding = _reference_top_padding(resume_data)
+    y = draw_header(page_height - margin - top_padding)
 
     y = _draw_reference_skills(pdf, resume_data, margin, y, content_width)
     y -= 15
@@ -595,29 +616,29 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
         y -= 18
 
     experiences = [exp for exp in (resume_data.experience or []) if _has_value(exp.job_title) or _has_value(exp.description)]
-    page_one_experiences = experiences[:4]
-    page_two_experiences = experiences[4:7]
+    visible_experiences = experiences[:7]
+    bullet_counts = [6, 5, 4, 6, 5, 4, 4]
+    bottom_limit = margin + 8
 
     y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
-    page_one_bullet_counts = [6, 5, 4, 6]
-    for index, exp in enumerate(page_one_experiences):
-        y = _draw_reference_experience(
-            pdf,
+    entry_heights = [
+        _reference_experience_height(
             exp,
-            margin,
-            y,
             content_width,
-            page_one_bullet_counts[index],
+            bullet_counts[index] if index < len(bullet_counts) else 3,
             compact=False,
         )
+        for index, exp in enumerate(visible_experiences)
+    ]
+    continuation_top = page_height - margin - top_padding
 
-    pdf.showPage()
-
-    y = page_height - margin - 5
-    y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
-    page_two_bullet_counts = [5, 4, 4]
-    for index, exp in enumerate(page_two_experiences):
-        count = page_two_bullet_counts[index] if index < len(page_two_bullet_counts) else 3
+    for index, exp in enumerate(visible_experiences):
+        count = bullet_counts[index] if index < len(bullet_counts) else 3
+        entry_height = entry_heights[index]
+        if y - entry_height < bottom_limit:
+            pdf.showPage()
+            y = continuation_top
+            y = _draw_reference_section(pdf, "Experience", margin, y, content_width)
         y = _draw_reference_experience(pdf, exp, margin, y, content_width, count, compact=False)
 
     if y > (1.95 * inch):

@@ -1,0 +1,456 @@
+%PDF-1.4
+%“Œ‹ž ReportLab Generated PDF document (opensource)
+1 0 obj
+<<
+/F1 2 0 R /F2 3 0 R /F3 4 0 R
+>>
+endobj
+2 0 obj
+<<
+/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
+>>
+endobj
+3 0 obj
+<<
+/BaseFont /Times-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
+>>
+endobj
+4 0 obj
+<<
+/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F3 /Subtype /Type1 /Type /Font
+>>
+endobj
+5 0 obj
+<<
+/Contents 10 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 9 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+6 0 obj
+<<
+/Contents 11 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 9 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+7 0 obj
+<<
+/PageMode /UseNone /Pages 9 0 R /Type /Catalog
+>>
+endobj
+8 0 obj
+<<
+/Author (anonymous) /CreationDate (D:20260810183858+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260810183858+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+  /Subject (unspecified) /Title (untitled) /Trapped /False
+>>
+endobj
+9 0 obj
+<<
+/Count 2 /Kids [ 5 0 R 6 0 R ] /Type /Pages
+>>
+endobj
+10 0 obj
+<<
+/Length 8614
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+BT /F2 16.5 Tf 19.8 TL ET
+BT 1 0 0 1 165.4068 782.3545 Tm (VENKATESWARLU DERANGULA) Tj T* ET
+.435294 .478431 .478431 rg
+BT /F1 12 Tf 14.4 TL ET
+BT 1 0 0 1 192.1458 766.3545 Tm (Senior DevOps Engineer | AWS | Azure) Tj T* ET
+0 0 0 rg
+BT /F1 8.1 Tf 9.72 TL ET
+.2 .2 .2 rg
+BT 1 0 0 1 69.8415 752.8545 Tm (vderangula44@gmail.com  \177  +91 7780569119  \177  www.linkedin.com/in/venkateswarlu-derangula  \177  India  \177  Open to Relocation) Tj T* ET
+0 0 0 rg
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 267.0283 727.8545 Tm (Summary) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 718.8545 m 567.9156 718.8545 l S
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 27.36 707.8545 Tm (DevOps and platform engineering professional with around 10 years of experience delivering infrastructure automation, container) Tj T* ET
+BT 1 0 0 1 27.36 696.6545 Tm (platforms, CI/CD, and production reliability. Hands-on delivery experience includes AWS, Terraform, Kubernetes, CI/CD, Docker,) Tj T* ET
+BT 1 0 0 1 27.36 685.4545 Tm (Ansible. Profile-aligned Azure capabilities include Azure, Azure DevOps, ARM Templates, AKS. Holds AWS Certified Solutions) Tj T* ET
+BT 1 0 0 1 27.36 674.2545 Tm (Architect \226 Professional, Certified Kubernetes Administrator \(CKA\), Google Cloud Certified Professional Cloud Architect certifications.) Tj T* ET
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 280.709 643.0545 Tm (Skills) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 634.0545 m 567.9156 634.0545 l S
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 27.36 623.0545 Tm (Azure \177 Azure DevOps \177 ARM Templates \177 AKS \177 AWS \177 RDS \177 EC2 \177 S3 \177 AWS Lambda \177 CloudWatch \177 EKS \177 GitHub Actions \177) Tj T* ET
+BT 1 0 0 1 27.36 611.8545 Tm (Terraform \177 Docker \177 Kubernetes \177 Linux \177 Prometheus \177 Grafana \177 JFrog Artifactory \177 DevOps \177 Python \177 Bash \177 IAC \177 Git \177 Sonar \177) Tj T* ET
+BT 1 0 0 1 27.36 600.6545 Tm (GitHub \177 Problem-Solving \177 Observability \177 Platform Engineering \177 GCP \177 Microservices \177 DevSecOps \177 Airflow \177 ELK Stack \177 Nginx \177) Tj T* ET
+BT 1 0 0 1 27.36 589.4545 Tm (API Gateway) Tj T* ET
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 255.3558 563.2545 Tm (Certifications) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 554.2545 m 567.9156 554.2545 l S
+0 0 0 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 543.2545 Tm (AWS Certified Solutions Architect \226 Professional) Tj T* ET
+0 0 0 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 532.2545 Tm (Certified Kubernetes Administrator \(CKA\)) Tj T* ET
+0 0 0 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 521.2545 Tm (Google Cloud Certified Professional Cloud Architect) Tj T* ET
+0 0 0 rg
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 263.0045 492.2545 Tm (Experience) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 483.2545 m 567.9156 483.2545 l S
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 472.2545 Tm (Infinite Computer Solutions) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 525.0704 472.2545 Tm (Bengaluru) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 459.2545 Tm (Technical Lead) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 494.7848 459.2545 Tm (09/2023 - Present) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 446.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 446.7545 Tm (Provisioned scalable, secure AWS infrastructure using Terraform, achieving full IaC adoption and reducing manual effort by 75%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 435.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 435.7545 Tm (Managed production-grade EKS clusters, ensuring 99.99% availability through effective Kubernetes platform engineering and) Tj T* ET
+BT 1 0 0 1 39.36 424.7545 Tm (performance profiling.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 413.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 413.7545 Tm (Implemented CI/CD pipelines by migrating Jenkins to GitHub Actions, standardizing workflows to enhance security and enable daily) Tj T* ET
+BT 1 0 0 1 39.36 402.7545 Tm (release cycles.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 391.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 391.7545 Tm (Developed centralized observability systems leveraging Prometheus and Grafana, substantially reducing MTTR and improving) Tj T* ET
+BT 1 0 0 1 39.36 380.7545 Tm (incident response times.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 369.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 369.7545 Tm (Integrated security tools like SonarQube into processes, enhancing code quality and compliance within CI/CD workflows.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 358.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 358.7545 Tm (Automated ML model management within Kubernetes platforms, utilizing Airflow for optimized data pipelines and streamlined) Tj T* ET
+BT 1 0 0 1 39.36 347.7545 Tm (deployment.) Tj T* ET
+0 0 0 rg
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 325.7545 Tm (Capgemini Technology Solutions) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 525.0704 325.7545 Tm (Bengaluru) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 312.7545 Tm (Professional II) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 312.7545 Tm (07/2022 - 09/2023) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 300.2545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 300.2545 Tm (Implemented CI/CD pipelines using GitHub Actions and Docker, increasing deployment frequency by 40% across multiple projects.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 289.2545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 289.2545 Tm (Automated cloud infrastructure provisioning on AWS with Terraform, resulting in standardized, scalable environments that improved) Tj T* ET
+BT 1 0 0 1 39.36 278.2545 Tm (resilience.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 267.2545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 267.2545 Tm (Streamlined Kubernetes processes with Helm, leading to a 30% reduction in release inconsistencies and deployment failures.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 256.2545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 256.2545 Tm (Instituted monitoring solutions using Prometheus and Grafana, enhancing system observability and incident response capabilities.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 245.2545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 245.2545 Tm (Led production incident management, achieving a 25% decrease in recurring issues and significantly boosting system stability.) Tj T* ET
+0 0 0 rg
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 223.2545 Tm (Societe Generale) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 525.0704 223.2545 Tm (Bengaluru) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 210.2545 Tm (Specialist Software Engineer) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 210.2545 Tm (01/2022 - 06/2022) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 197.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 197.7545 Tm (Established robust Git branching strategies and code review frameworks, enhancing collaboration and reducing merge conflicts by) Tj T* ET
+BT 1 0 0 1 39.36 186.7545 Tm (40%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 175.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 175.7545 Tm (Led migration of on-premise applications to AWS resources including EC2 and S3, reducing infrastructure costs by 25% while) Tj T* ET
+BT 1 0 0 1 39.36 164.7545 Tm (improving scalability and performance.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 153.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 153.7545 Tm (Automated configuration management with Ansible, decreasing manual efforts by 70% and ensuring deployment consistency across) Tj T* ET
+BT 1 0 0 1 39.36 142.7545 Tm (environments.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 131.7545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 131.7545 Tm (Optimized Kubernetes deployments, enhancing container orchestration effectiveness, improving resource utilization by 30%, and) Tj T* ET
+BT 1 0 0 1 39.36 120.7545 Tm (reducing deployment errors.) Tj T* ET
+0 0 0 rg
+ 
+endstream
+endobj
+11 0 obj
+<<
+/Length 7677
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 263.0045 782.3545 Tm (Experience) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 773.3545 m 567.9156 773.3545 l S
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 762.3545 Tm (Motorola Solutions \(Kodiak Networks\)) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 525.0704 762.3545 Tm (Bengaluru) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 749.3545 Tm (Analyst \226 Customer Success) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 749.3545 Tm (12/2020 - 01/2022) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 736.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 736.8545 Tm (Streamlined workflows using GitHub Actions, reducing merge conflicts by 30% and enhancing team collaboration across projects.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 725.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 725.8545 Tm (Optimized and managed Jenkins-driven CI/CD pipelines, cutting release cycle times by 40% for faster software delivery.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 714.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 714.8545 Tm (Designed and deployed highly available Kubernetes clusters on AWS \(EKS\), achieving 99.9% uptime and improving application) Tj T* ET
+BT 1 0 0 1 39.36 703.8545 Tm (scalability by 50%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 692.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 692.8545 Tm (Led containerization initiatives with Docker, ensuring consistent development, testing, and production environments, and reducing) Tj T* ET
+BT 1 0 0 1 39.36 681.8545 Tm (deployment times by 20%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 670.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 670.8545 Tm (Orchestrated and managed container workloads using Kubernetes, increasing system reliability by 25% through effective horizontal) Tj T* ET
+BT 1 0 0 1 39.36 659.8545 Tm (scaling strategies.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 648.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 648.8545 Tm (Collaborated with QA teams to implement automated testing frameworks, resulting in a 35% reduction in post-release defects and) Tj T* ET
+BT 1 0 0 1 39.36 637.8545 Tm (improved code quality.) Tj T* ET
+0 0 0 rg
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 615.8545 Tm (BNP Paribas) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 532.91 615.8545 Tm (Chennai) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 602.8545 Tm (Associate Level I) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 602.8545 Tm (08/2018 - 04/2020) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 590.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 590.3545 Tm (Automated CI/CD workflows by developing Jenkins pipelines as code, resulting in a 40% reduction in release timelines.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 579.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 579.3545 Tm (Integrated GitHub Actions for enhanced automation in microservices, increasing release frequency and decreasing errors by 30%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 568.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 568.3545 Tm (Implemented JFrog Artifactory for efficient artifact lifecycle management, boosting delivery efficiency by 25%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 557.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 557.3545 Tm (Established robust monitoring solutions with Prometheus and Grafana, enabling proactive issue detection and reducing bottlenecks) Tj T* ET
+BT 1 0 0 1 39.36 546.3545 Tm (by 35%.) Tj T* ET
+0 0 0 rg
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 524.3545 Tm (State Street HCL Services) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 507.3044 524.3545 Tm (Chennai, India) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 511.3545 Tm (Sr Analyst) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 511.3545 Tm (09/2017 - 07/2018) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 498.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 498.8545 Tm (Executed management of Linux systems, enhancing operational efficiency across multiple environments.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 487.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 487.8545 Tm (Achieved a 75% increase in system stability through effective package management and kernel upgrades.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 476.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 476.8545 Tm (Developed and automated deployment processes, significantly reducing downtime and improving responsiveness.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 465.8545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 465.8545 Tm (Spearheaded troubleshooting initiatives, effectively minimizing incident resolution time and enhancing overall system reliability.) Tj T* ET
+0 0 0 rg
+.435294 .478431 .478431 rg
+BT /F1 11.8 Tf 14.16 TL ET
+BT 1 0 0 1 27.36 443.8545 Tm (State Street HCL Services) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.4 Tf 11.28 TL ET
+BT 1 0 0 1 507.3044 443.8545 Tm (Chennai, India) Tj T* ET
+0 0 0 rg
+BT /F3 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 27.36 430.8545 Tm (Analyst) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.2 Tf 11.04 TL ET
+BT 1 0 0 1 493.2392 430.8545 Tm (05/2015 - 12/2016) Tj T* ET
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 418.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 418.3545 Tm (Administered Linux servers, maintaining over 95% SLA adherence and enhancing system reliability.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 407.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 407.3545 Tm (Streamlined routine administrative tasks through Shell scripting, boosting efficiency by 30%.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 396.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 396.3545 Tm (Monitored CPU, memory, and disk utilization, implementing proactive measures to prevent outages.) Tj T* ET
+0 0 0 rg
+.266667 .266667 .266667 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 29.36 385.3545 Tm (\177) Tj T* ET
+BT 1 0 0 1 39.36 385.3545 Tm (Collaborated with cross-functional teams to optimize server performance and reduce downtime by 20%.) Tj T* ET
+0 0 0 rg
+0 0 0 rg
+BT /F2 14.5 Tf 17.4 TL ET
+BT 1 0 0 1 265.8103 363.3545 Tm (Education) Tj T* ET
+0 0 0 RG
+.8 w
+n 27.36 354.3545 m 567.9156 354.3545 l S
+.435294 .478431 .478431 rg
+BT /F1 11 Tf 13.2 TL ET
+BT 1 0 0 1 27.36 343.3545 Tm (SV University, Tirupati) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.3 Tf 11.16 TL ET
+BT 1 0 0 1 536.9094 343.3545 Tm (Tirupati) Tj T* ET
+0 0 0 rg
+BT /F3 8.8 Tf 10.56 TL ET
+BT 1 0 0 1 27.36 331.3545 Tm (MBA) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 519.8826 331.3545 Tm (2010 - 2012) Tj T* ET
+.435294 .478431 .478431 rg
+BT /F1 11 Tf 13.2 TL ET
+BT 1 0 0 1 27.36 315.3545 Tm (SV University, Tirupati) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9.3 Tf 11.16 TL ET
+BT 1 0 0 1 536.9094 315.3545 Tm (Tirupati) Tj T* ET
+0 0 0 rg
+BT /F3 8.8 Tf 10.56 TL ET
+BT 1 0 0 1 27.36 303.3545 Tm (B.Com. \(Computer Applications\)) Tj T* ET
+.2 .2 .2 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 519.8826 303.3545 Tm (2007 - 2010) Tj T* ET
+ 
+endstream
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000061 00000 n 
+0000000112 00000 n 
+0000000219 00000 n 
+0000000327 00000 n 
+0000000439 00000 n 
+0000000643 00000 n 
+0000000847 00000 n 
+0000000915 00000 n 
+0000001176 00000 n 
+0000001241 00000 n 
+0000009907 00000 n 
+trailer
+<<
+/ID 
+[<46b98ee83bbd24de5ca7b7a60ac71aea><46b98ee83bbd24de5ca7b7a60ac71aea>]
+% ReportLab generated PDF document -- digest (opensource)
+
+/Info 8 0 R
+/Root 7 0 R
+/Size 12
+>>
+startxref
+17636
+%%EOF

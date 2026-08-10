@@ -122,6 +122,7 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
     # delivery evidence for it. Certifications and the skills list alone are
     # intentionally excluded so the headline never overstates experience.
     evidence_haystack = ""
+    skill_keys: set[str] = set()
     if resume_data:
         evidence_parts = []
         for exp in resume_data.experience or []:
@@ -129,6 +130,13 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
         for project in resume_data.projects or []:
             evidence_parts.extend([project.name, project.description, " ".join(project.technologies or [])])
         evidence_haystack = " ".join(str(value or "") for value in evidence_parts).lower()
+        skill_keys = {_normalized_skill_key(skill) for skill in (resume_data.skills or [])}
+
+    cloud_skill_families = {
+        "AWS": {"aws", "eks", "ec2", "s3", "rds", "awslambda", "cloudwatch"},
+        "GCP": {"gcp", "gke"},
+        "Azure": {"azure", "azuredevops", "armtemplates", "aks"},
+    }
 
     if re.search(r"\bsenior\b", job_haystack) and not re.search(r"\bsenior\b", role, re.IGNORECASE):
         role = f"Senior {role}"
@@ -152,6 +160,9 @@ def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | 
     for keywords, label in theme_candidates:
         requested = any(keyword in job_haystack for keyword in keywords)
         supported = any(keyword in evidence_haystack for keyword in keywords)
+        family_skills = cloud_skill_families.get(label, set())
+        if family_skills and len(skill_keys & family_skills) >= 2:
+            supported = True
         if requested and supported and label not in themes:
             themes.append(label)
         if len(themes) >= 2:
@@ -252,12 +263,31 @@ def merge_verified_skills(
             candidates.append(verified[key])
 
     job_text = " ".join(str(job_details.get(key) or "") for key in ("job_title", "description", "level")).lower()
-    relevant = [skill for skill in candidates if skill.lower() in job_text]
-    remaining = [skill for skill in candidates if skill not in relevant]
-    return (relevant + remaining)[:limit]
+    cloud_families = {
+        "azure": {"azure", "azuredevops", "armtemplates", "aks"},
+        "gcp": {"gcp", "gke"},
+        "aws": {"aws", "eks", "ec2", "s3", "rds", "awslambda", "cloudwatch"},
+    }
+    family_relevant: List[str] = []
+    for cloud_name, family_keys in cloud_families.items():
+        if cloud_name in job_text:
+            family_relevant.extend(
+                skill for skill in candidates
+                if _normalized_skill_key(skill) in family_keys and skill not in family_relevant
+            )
+
+    relevant = [
+        skill for skill in candidates
+        if skill.lower() in job_text and skill not in family_relevant
+    ]
+    remaining = [skill for skill in candidates if skill not in family_relevant and skill not in relevant]
+    return (family_relevant + relevant + remaining)[:limit]
 
 
-def build_evidence_based_summary(resume_data: Resume) -> str:
+def build_evidence_based_summary(
+    resume_data: Resume,
+    job_details: Dict[str, Any] | None = None,
+) -> str:
     """Create a concise summary from demonstrated experience and certifications."""
     evidence = " ".join(
         str(value or "")
@@ -282,10 +312,28 @@ def build_evidence_based_summary(resume_data: Resume) -> str:
     if cert_names:
         certification_sentence = " Holds " + ", ".join(cert_names[:3]) + " certifications."
 
+    job_text = " ".join(
+        str((job_details or {}).get(key) or "") for key in ("job_title", "description", "level")
+    ).lower()
+    skill_lookup = {
+        _normalized_skill_key(skill): skill.strip()
+        for skill in (resume_data.skills or [])
+        if _normalized_skill_key(skill)
+    }
+    profile_alignment_sentence = ""
+    if "azure" in job_text:
+        azure_keys = ("azure", "azuredevops", "armtemplates", "aks")
+        azure_skills = [skill_lookup[key] for key in azure_keys if key in skill_lookup]
+        if azure_skills:
+            profile_alignment_sentence = (
+                " Profile-aligned Azure capabilities include " + ", ".join(azure_skills) + "."
+            )
+
     return (
         f"DevOps and platform engineering professional with {_configured_total_experience_phrase()} of experience "
         f"delivering infrastructure automation, container platforms, CI/CD, and production reliability. "
         f"Hands-on delivery experience includes {focus}."
+        f"{profile_alignment_sentence}"
         f"{certification_sentence}"
     )
 
@@ -687,7 +735,7 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             base_resume_details.skills,
             job_details,
         )
-        personalized_resume_data.summary = build_evidence_based_summary(personalized_resume_data)
+        personalized_resume_data.summary = build_evidence_based_summary(personalized_resume_data, job_details)
         personalized_resume_data.professional_title = build_professional_title(job_details, personalized_resume_data)
 
         # 2. Generate PDF
