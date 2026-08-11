@@ -554,13 +554,13 @@ DIRECT_JOB_URL_OVERRIDES = {
 # a public endpoint supported by the scraper.
 SERVICE_BASED_COMPANY_CAREER_PAGE_URLS = {
     "Accenture": "https://www.accenture.com/in-en/careers/jobsearch",
-    "Tata Consultancy Services": "https://www.tcs.com/careers/india",
+    "Tata Consultancy Services": "https://ibegin.tcsapps.com/candidate/?geography=IN&language=EN",
     "Infosys": "https://career.infosys.com/",
     "Wipro": "https://careers.wipro.com/",
-    "HCLTech": "https://careers.hcltech.com/",
-    "Cognizant": "https://careers.cognizant.com/india-en/",
+    "HCLTech": "https://careers.hcltech.com/search/?q=DevOps&locationsearch=India",
+    "Cognizant": "https://careers.cognizant.com/india-en/jobs/",
     "Capgemini": "https://www.capgemini.com/in-en/careers/",
-    "Tech Mahindra": "https://careers.techmahindra.com/",
+    "Tech Mahindra": "https://careers.techmahindra.com/CurrentOpportunity.aspx",
     "LTIMindtree": "https://careers.ltimindtree.com/",
     "Mphasis": "https://careers.mphasis.com/",
     "Persistent Systems": "https://careers.persistent.com/",
