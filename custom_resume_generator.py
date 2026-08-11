@@ -338,6 +338,39 @@ def build_evidence_based_summary(
     )
 
 
+def build_application_summary(resume_data: Resume) -> str:
+    """Create the capability-focused summary used only for Application-tab resumes."""
+    evidence = " ".join(
+        str(value or "")
+        for exp in (resume_data.experience or [])
+        for value in (exp.job_title, exp.description)
+    ).lower()
+    has_leadership_evidence = bool(
+        re.search(r"\b(?:technical lead|team lead|led|leading|mentor(?:ed|ing)?)\b", evidence)
+    )
+    leadership_sentence = (
+        " Proven experience leading platform engineering initiatives, improving developer productivity, "
+        "strengthening security and observability, and supporting highly available enterprise environments."
+        if has_leadership_evidence
+        else
+        " Proven experience improving delivery efficiency, strengthening security and observability, and "
+        "supporting highly available enterprise environments."
+    )
+    certification_sentence = (
+        " Holds professional-level cloud and Kubernetes certifications."
+        if resume_data.certifications
+        else ""
+    )
+
+    return (
+        f"Senior DevOps and platform engineering professional with {_configured_total_experience_phrase()} of "
+        "experience delivering scalable cloud infrastructure, automation, container platforms, CI/CD, and "
+        "production reliability."
+        f"{leadership_sentence}"
+        f"{certification_sentence}"
+    )
+
+
 def sanitize_resume_content(resume_data: Resume) -> Resume:
     cleaned = resume_data.model_copy(deep=True)
     cleaned.summary = _enforce_total_experience(cleaned.summary)

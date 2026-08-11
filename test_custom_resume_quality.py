@@ -2,6 +2,7 @@ import unittest
 
 from custom_resume_generator import (
     _clean_resume_bullets,
+    build_application_summary,
     build_evidence_based_summary,
     build_professional_title,
     merge_verified_skills,
@@ -55,6 +56,16 @@ class CustomResumeQualityTests(unittest.TestCase):
         self.assertIn("around 10 years", summary)
         self.assertIn("AWS", summary)
         self.assertNotIn("expert", summary.lower())
+
+    def test_application_summary_is_capability_focused_not_tool_heavy(self):
+        summary = build_application_summary(self.resume)
+        self.assertIn("around 10 years", summary)
+        self.assertIn("cloud infrastructure", summary)
+        self.assertIn("leading platform engineering initiatives", summary)
+        self.assertIn("professional-level cloud and Kubernetes certifications", summary)
+        self.assertNotIn("expert", summary.lower())
+        for tool_name in ("AWS", "Azure", "GCP", "Terraform", "Jenkins", "Docker"):
+            self.assertNotIn(tool_name, summary)
 
     def test_skill_merge_rejects_unverified_llm_skills(self):
         skills = merge_verified_skills(

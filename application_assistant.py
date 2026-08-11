@@ -625,6 +625,21 @@ def queue_candidate(
         )
         return False
     result_notes = _queue_notes_from_result(result)
+    if candidate.customized_resume_id:
+        try:
+            from regenerate_custom_resume_pdfs import ensure_application_resume_summary
+
+            if not ensure_application_resume_summary(candidate.customized_resume_id):
+                logging.warning(
+                    "Could not apply the Application-tab summary to customized resume %s.",
+                    candidate.customized_resume_id,
+                )
+        except Exception as exc:
+            logging.warning(
+                "Could not refresh Application-tab resume %s: %s",
+                candidate.customized_resume_id,
+                exc,
+            )
     payload = {
         "job_id": candidate.job_id,
         "customized_resume_id": candidate.customized_resume_id,

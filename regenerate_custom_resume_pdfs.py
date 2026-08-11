@@ -4,6 +4,7 @@ import time
 
 import config
 from custom_resume_generator import (
+    build_application_summary,
     build_evidence_based_summary,
     build_professional_title,
     merge_verified_skills,
@@ -16,6 +17,8 @@ from resume_filename import build_custom_resume_filename
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+APPLICATION_SUMMARY_PREFIX = "Senior DevOps and platform engineering professional"
 
 
 def _execute_with_retries(query, action: str, attempts: int = 4):
@@ -84,8 +87,21 @@ def _resume_id_for_job(job_id: str) -> str | None:
     return str(rows[0].get("customized_resume_id")) if rows and rows[0].get("customized_resume_id") else None
 
 
-def _fetch_job_metadata_by_resume_id() -> dict[str, dict]:
+def _fetch_job_metadata_by_resume_id(resume_id: str | None = None) -> dict[str, dict]:
     metadata: dict[str, dict] = {}
+    if resume_id:
+        response = _execute_with_retries(
+            supabase_utils.supabase.table(config.SUPABASE_TABLE_NAME)
+            .select("job_id, company, job_title, level, description, customized_resume_id")
+            .eq("customized_resume_id", resume_id)
+            .limit(1),
+            f"fetch job metadata for customized resume id={resume_id}",
+        )
+        for row in response.data or []:
+            if row.get("customized_resume_id"):
+                metadata[str(row["customized_resume_id"])] = row
+        return metadata
+
     offset = 0
     batch_size = 1000
 
@@ -107,6 +123,32 @@ def _fetch_job_metadata_by_resume_id() -> dict[str, dict]:
         offset += batch_size
 
     return metadata
+
+
+def _fetch_application_queue_resume_ids() -> set[str]:
+    rows: list[dict] = []
+    offset = 0
+    batch_size = 1000
+    while True:
+        response = _execute_with_retries(
+            supabase_utils.supabase.table("application_queue")
+            .select("customized_resume_id,status")
+            .range(offset, offset + batch_size - 1),
+            f"fetch application queue rows {offset}-{offset + batch_size - 1}",
+        )
+        batch = response.data or []
+        rows.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+
+    terminal_statuses = {"deleted", "dismissed"}
+    return {
+        str(row["customized_resume_id"])
+        for row in rows
+        if row.get("customized_resume_id")
+        and str(row.get("status") or "").lower() not in terminal_statuses
+    }
 
 
 def _new_resume_path(record: dict, job_metadata: dict | None = None) -> str:
@@ -137,10 +179,26 @@ def _fetch_current_profile() -> Resume | None:
         return None
 
 
-def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bool = False, resume_id: str | None = None) -> tuple[int, int]:
+def regenerate_existing_custom_resume_pdfs(
+    limit: int | None = None,
+    dry_run: bool = False,
+    resume_id: str | None = None,
+    scope: str = "all",
+) -> tuple[int, int]:
     records = _fetch_customized_resumes(limit=limit, resume_id=resume_id)
+    application_resume_ids: set[str] = set()
+    if scope in {"application-queue", "restore-non-application"} and not resume_id:
+        application_resume_ids = _fetch_application_queue_resume_ids()
+    if scope == "application-queue" and not resume_id:
+        records = [record for record in records if str(record.get("id")) in application_resume_ids]
+    elif scope == "restore-non-application":
+        records = [
+            record for record in records
+            if str(record.get("id")) not in application_resume_ids
+            and APPLICATION_SUMMARY_PREFIX in str(record.get("summary") or "")
+        ]
     logging.info("Found %s customized resume record(s).", len(records))
-    job_metadata_by_resume_id = _fetch_job_metadata_by_resume_id()
+    job_metadata_by_resume_id = _fetch_job_metadata_by_resume_id(resume_id=resume_id)
     logging.info("Found job metadata for %s customized resume record(s).", len(job_metadata_by_resume_id))
     profile = _fetch_current_profile()
     logging.info(
@@ -163,7 +221,11 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
             resume_data = sanitize_resume_content(resume_data)
             if profile:
                 resume_data.skills = merge_verified_skills(resume_data.skills, profile.skills, job_metadata)
-            resume_data.summary = build_evidence_based_summary(resume_data, job_metadata)
+            resume_data.summary = (
+                build_application_summary(resume_data)
+                if scope == "application-queue"
+                else build_evidence_based_summary(resume_data, job_metadata)
+            )
             resume_data.professional_title = build_professional_title(job_metadata, resume_data)
             pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
             destination_path = _new_resume_path(record, job_metadata)
@@ -205,12 +267,31 @@ def regenerate_existing_custom_resume_pdfs(limit: int | None = None, dry_run: bo
     return updated, failed
 
 
+def ensure_application_resume_summary(resume_id: str) -> bool:
+    records = _fetch_customized_resumes(resume_id=resume_id)
+    if not records:
+        return False
+    if APPLICATION_SUMMARY_PREFIX in str(records[0].get("summary") or ""):
+        return True
+    updated, failed = regenerate_existing_custom_resume_pdfs(
+        resume_id=resume_id,
+        scope="application-queue",
+    )
+    return updated == 1 and failed == 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Regenerate existing customized resume PDFs with the current PDF template.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N customized resumes.")
     parser.add_argument("--resume-id", default=None, help="Only regenerate one customized resume ID.")
     parser.add_argument("--job-id", default=None, help="Only regenerate the customized resume attached to one job ID.")
     parser.add_argument("--dry-run", action="store_true", help="Build and validate without uploading/updating Supabase.")
+    parser.add_argument(
+        "--scope",
+        choices=("all", "application-queue", "restore-non-application"),
+        default="all",
+        help="Limit regeneration to Application-tab resumes or restore only mistakenly changed non-application resumes.",
+    )
     args = parser.parse_args()
 
     resume_id = args.resume_id
@@ -219,7 +300,12 @@ def main() -> int:
         if not resume_id:
             logging.error("No customized resume is attached to job_id=%s", args.job_id)
             return 1
-    updated, failed = regenerate_existing_custom_resume_pdfs(limit=args.limit, dry_run=args.dry_run, resume_id=resume_id)
+    updated, failed = regenerate_existing_custom_resume_pdfs(
+        limit=args.limit,
+        dry_run=args.dry_run,
+        resume_id=resume_id,
+        scope=args.scope,
+    )
     logging.info("Finished. updated=%s failed=%s", updated, failed)
     if failed:
         logging.warning(
