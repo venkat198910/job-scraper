@@ -363,7 +363,7 @@ def build_application_summary(resume_data: Resume) -> str:
     )
 
     return (
-        f"Senior DevOps and platform engineering professional with {_configured_total_experience_phrase()} of "
+        "Senior DevOps and platform engineering professional with 10 years of "
         "experience delivering scalable cloud infrastructure, automation, container platforms, CI/CD, and "
         "production reliability."
         f"{leadership_sentence}"

@@ -59,7 +59,8 @@ class CustomResumeQualityTests(unittest.TestCase):
 
     def test_application_summary_is_capability_focused_not_tool_heavy(self):
         summary = build_application_summary(self.resume)
-        self.assertIn("around 10 years", summary)
+        self.assertIn("with 10 years of experience", summary)
+        self.assertNotIn("around", summary.lower())
         self.assertIn("cloud infrastructure", summary)
         self.assertIn("leading platform engineering initiatives", summary)
         self.assertIn("professional-level cloud and Kubernetes certifications", summary)
