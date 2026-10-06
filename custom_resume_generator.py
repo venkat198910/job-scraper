@@ -243,13 +243,64 @@ def _normalized_skill_key(skill: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(skill or "").lower())
 
 
+AI_SKILL_ALIASES = (
+    ("Artificial Intelligence", ("artificial intelligence",)),
+    ("Generative AI", ("generative ai", "gen ai", "genai")),
+    ("Large Language Models (LLMs)", ("large language models", "large language model", "llms", "llm")),
+    ("Prompt Engineering", ("prompt engineering", "prompt design")),
+    ("AI Agents", ("ai agents", "agentic ai", "autonomous agents")),
+    ("Retrieval-Augmented Generation (RAG)", ("retrieval-augmented generation", "retrieval augmented generation", "rag")),
+    ("Azure OpenAI", ("azure openai",)),
+    ("Amazon Bedrock", ("amazon bedrock", "bedrock")),
+    ("Google Vertex AI", ("google vertex ai", "vertex ai")),
+    ("GitHub Copilot", ("github copilot",)),
+    ("Hugging Face", ("hugging face",)),
+    ("LlamaIndex", ("llamaindex", "llama index")),
+    ("LangChain", ("langchain",)),
+    ("OpenAI", ("openai",)),
+    ("ChatGPT", ("chatgpt",)),
+    ("Gemini", ("gemini",)),
+    ("Claude", ("claude",)),
+    ("PyTorch", ("pytorch",)),
+    ("TensorFlow", ("tensorflow",)),
+    ("MLflow", ("mlflow",)),
+    ("Kubeflow", ("kubeflow",)),
+    ("Pinecone", ("pinecone",)),
+    ("Weaviate", ("weaviate",)),
+    ("ChromaDB", ("chromadb", "chroma db")),
+    ("FAISS", ("faiss",)),
+)
+
+
+def _mentions_term(text: str, term: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])",
+            text or "",
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _resume_evidence_text(resume_data: Resume) -> str:
+    evidence = [resume_data.summary or "", *(resume_data.skills or [])]
+    for experience in resume_data.experience or []:
+        evidence.extend((experience.job_title, experience.description))
+    for project in resume_data.projects or []:
+        evidence.extend((project.name, project.description, *(project.technologies or [])))
+    for certification in resume_data.certifications or []:
+        evidence.extend((certification.name, certification.issuer))
+    return " ".join(str(item or "") for item in evidence)
+
+
 def merge_verified_skills(
     personalized_skills: List[str],
     base_skills: List[str],
     job_details: Dict[str, Any],
+    profile_evidence: str = "",
     limit: int = 36,
 ) -> List[str]:
-    """Keep only profile-verified skills, ordered by JD relevance then profile order."""
+    """Prioritize profile-verified skills and relevant, evidenced AI tools."""
     verified: Dict[str, str] = {}
     for skill in base_skills or []:
         key = _normalized_skill_key(skill)
@@ -281,7 +332,23 @@ def merge_verified_skills(
         if skill.lower() in job_text and skill not in family_relevant
     ]
     remaining = [skill for skill in candidates if skill not in family_relevant and skill not in relevant]
-    return (family_relevant + relevant + remaining)[:limit]
+
+    evidence_text = f" {profile_evidence} "
+    ai_relevant: List[str] = []
+    for label, aliases in AI_SKILL_ALIASES:
+        if not any(_mentions_term(job_text, alias) for alias in aliases):
+            continue
+        if not any(_mentions_term(evidence_text, alias) for alias in aliases):
+            continue
+        if any(
+            _normalized_skill_key(skill) == _normalized_skill_key(label)
+            or any(_mentions_term(skill, alias) for alias in aliases)
+            for skill in candidates
+        ):
+            continue
+        ai_relevant.append(label)
+
+    return (family_relevant + relevant + ai_relevant + remaining)[:limit]
 
 
 def build_evidence_based_summary(
@@ -767,6 +834,7 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
             personalized_resume_data.skills,
             base_resume_details.skills,
             job_details,
+            profile_evidence=_resume_evidence_text(base_resume_details),
         )
         personalized_resume_data.summary = build_evidence_based_summary(personalized_resume_data, job_details)
         personalized_resume_data.professional_title = build_professional_title(job_details, personalized_resume_data)
