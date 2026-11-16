@@ -243,12 +243,29 @@ def _normalized_skill_key(skill: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(skill or "").lower())
 
 
+ADDITIONAL_AI_PROFILE_SKILLS = (
+    "Generative AI",
+    "Large Language Models (LLMs)",
+    "AI-assisted Development Tools",
+    "AI Agents",
+    "AI Copilots",
+    "Workflow Automation",
+    "Model Context Protocol (MCP)",
+    "REST APIs",
+)
+
+
 AI_SKILL_ALIASES = (
     ("Artificial Intelligence", ("artificial intelligence",)),
     ("Generative AI", ("generative ai", "gen ai", "genai")),
     ("Large Language Models (LLMs)", ("large language models", "large language model", "llms", "llm")),
     ("Prompt Engineering", ("prompt engineering", "prompt design")),
     ("AI Agents", ("ai agents", "agentic ai", "autonomous agents")),
+    ("AI-assisted Development Tools", ("ai-assisted development tools", "ai assisted development tools")),
+    ("AI Copilots", ("ai copilots", "copilots", "copilot")),
+    ("Workflow Automation", ("workflow automation",)),
+    ("Model Context Protocol (MCP)", ("model context protocol", "mcp")),
+    ("REST APIs", ("rest apis", "rest api", "restful apis", "restful api")),
     ("Retrieval-Augmented Generation (RAG)", ("retrieval-augmented generation", "retrieval augmented generation", "rag")),
     ("Azure OpenAI", ("azure openai",)),
     ("Amazon Bedrock", ("amazon bedrock", "bedrock")),
@@ -930,6 +947,9 @@ async def run_job_processing_cycle():
              if raw_resume_details.get(key) is None:
                  raw_resume_details[key] = []
         base_resume_details = Resume(**raw_resume_details)
+        base_resume_details.skills = list(
+            dict.fromkeys([*(base_resume_details.skills or []), *ADDITIONAL_AI_PROFILE_SKILLS])
+        )
         logging.info("Successfully parsed base resume.")
     except Exception as e:
         logging.error(f"Error parsing base resume details into Pydantic model: {e}")

@@ -119,6 +119,16 @@ def _clean_text(value) -> str:
     return text
 
 
+def _education_degree_font(degree: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]", "", _clean_text(degree).lower())
+    if normalized.startswith("mba") or (
+        "computerapplications" in normalized
+        and ("bcom" in normalized or "bachelorofcommerce" in normalized)
+    ):
+        return "Helvetica"
+    return "Helvetica-Bold"
+
+
 def _clip(text: str, max_chars: int) -> str:
     text = _clean_text(text)
     if len(text) <= max_chars:
@@ -278,7 +288,7 @@ def _draw_education(pdf: canvas.Canvas, resume_data: Resume, x: float, y: float,
             years = f"{_clean_text(edu.start_year)} - {_clean_text(edu.end_year)}"
         elif _has_value(edu.end_year):
             years = _clean_text(edu.end_year)
-        pdf.setFont("Helvetica-Bold", 8.0)
+        pdf.setFont(_education_degree_font(degree), 8.0)
         pdf.drawString(x, y, degree)
         if years:
             pdf.setFont("Helvetica", 7.5)
@@ -523,7 +533,7 @@ def _draw_reference_education(pdf: canvas.Canvas, resume_data: Resume, x: float,
             pdf.drawRightString(x + width, y, location)
         y -= 12
         pdf.setFillColor(colors.black)
-        pdf.setFont("Helvetica-Bold", 8.8)
+        pdf.setFont(_education_degree_font(degree), 8.8)
         pdf.drawString(x, y, degree)
         if dates:
             pdf.setFillColor(colors.HexColor("#333333"))
