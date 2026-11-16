@@ -4,6 +4,7 @@ import time
 
 import config
 from custom_resume_generator import (
+    ADDITIONAL_AI_PROFILE_SKILLS,
     build_application_summary,
     build_evidence_based_summary,
     build_professional_title,
@@ -170,7 +171,9 @@ def _fetch_current_profile() -> Resume | None:
         return None
 
     try:
-        return Resume.model_validate(base_resume)
+        profile = Resume.model_validate(base_resume)
+        profile.skills = list(dict.fromkeys([*(profile.skills or []), *ADDITIONAL_AI_PROFILE_SKILLS]))
+        return profile
     except Exception as exc:
         logging.warning(
             "Current base-resume certifications could not be parsed; existing values will be preserved: %s",
