@@ -246,9 +246,7 @@ def _normalized_skill_key(skill: str) -> str:
 ADDITIONAL_AI_PROFILE_SKILLS = (
     "Generative AI",
     "Large Language Models (LLMs)",
-    "AI-assisted Development Tools",
     "AI Agents",
-    "AI Copilots",
     "Workflow Automation",
     "Model Context Protocol (MCP)",
     "REST APIs",
