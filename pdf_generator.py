@@ -551,7 +551,7 @@ def _draw_reference_skills(pdf: canvas.Canvas, resume_data: Resume, x: float, y:
     return _draw_wrapped_text(pdf, " \u2022 ".join(skills[:42]), x, y, width, "Helvetica", 9.0, 11.2, max_lines=4)
 
 
-def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
+def _build_canvas_two_page_pdf(resume_data: Resume, include_tagline: bool = True) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4, pageCompression=0)
     page_width, page_height = A4
@@ -564,18 +564,20 @@ def _build_canvas_two_page_pdf(resume_data: Resume) -> bytes:
             pdf.drawCentredString(page_width / 2, y, _clean_text(str(resume_data.name)).upper())
             y -= 16
 
-        y = _draw_reference_centered(
-            pdf,
-            _resume_tagline(resume_data),
-            margin,
-            y,
-            content_width,
-            "Helvetica",
-            12.0,
-            13.5,
-            max_lines=1,
-            fill=colors.HexColor("#6F7A7A"),
-        )
+        tagline = _resume_tagline(resume_data) if include_tagline else ""
+        if tagline:
+            y = _draw_reference_centered(
+                pdf,
+                tagline,
+                margin,
+                y,
+                content_width,
+                "Helvetica",
+                12.0,
+                13.5,
+                max_lines=1,
+                fill=colors.HexColor("#6F7A7A"),
+            )
 
         contact_parts = [_clean_text(value) for value in [resume_data.email, resume_data.phone, resume_data.location] if _has_value(value)]
         if resume_data.links and _has_value(resume_data.links.linkedin):
@@ -764,7 +766,7 @@ def _make_styles(profile):
     }
 
 
-def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
+def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile, include_tagline: bool = True) -> list:
     style = _make_styles(profile)
     available_width = letter[0] - doc.leftMargin - doc.rightMargin
     story = []
@@ -772,7 +774,7 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
     if _has_value(resume_data.name):
         story.append(_paragraph(str(resume_data.name).upper(), style["name"]))
 
-    tagline = _resume_tagline(resume_data)
+    tagline = _resume_tagline(resume_data) if include_tagline else ""
     if _has_value(tagline):
         story.append(_paragraph(tagline, style["contact"]))
 
@@ -922,7 +924,7 @@ def _build_story(resume_data: Resume, doc: SimpleDocTemplate, profile) -> list:
     return story
 
 
-def _build_pdf(resume_data: Resume, profile) -> tuple[bytes, int]:
+def _build_pdf(resume_data: Resume, profile, include_tagline: bool = True) -> tuple[bytes, int]:
     buffer = io.BytesIO()
     margin = profile["margin"] * inch
     doc = SimpleDocTemplate(
@@ -944,20 +946,20 @@ def _build_pdf(resume_data: Resume, profile) -> tuple[bytes, int]:
         def save(self):
             super().save()
 
-    story = _build_story(resume_data, doc, profile)
+    story = _build_story(resume_data, doc, profile, include_tagline=include_tagline)
     doc.build(story, canvasmaker=CountingCanvas)
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes, page_count["value"]
 
 
-def create_resume_pdf(resume_data: Resume) -> bytes:
+def create_resume_pdf(resume_data: Resume, include_tagline: bool = True) -> bytes:
     """
     Generates a concise ATS-friendly PDF resume from the provided Resume data object.
     The primary builder emits exactly two pages with a deterministic layout.
     """
     try:
-        return _build_canvas_two_page_pdf(resume_data)
+        return _build_canvas_two_page_pdf(resume_data, include_tagline=include_tagline)
     except Exception as exc:
         logging.error("Error building deterministic two-page PDF: %s", exc)
 
@@ -968,7 +970,7 @@ def create_resume_pdf(resume_data: Resume) -> bytes:
 
     for profile in DENSITY_PROFILES:
         try:
-            pdf_bytes, pages = _build_pdf(resume_data, profile)
+            pdf_bytes, pages = _build_pdf(resume_data, profile, include_tagline=include_tagline)
             logging.info("PDF generated with %s profile: %s page(s).", profile["name"], pages)
             last_pdf, last_pages = pdf_bytes, pages
             if pages == MAX_PAGES or (
@@ -1011,7 +1013,7 @@ def create_resume_pdf(resume_data: Resume) -> bytes:
         "language_items": 0,
         "tech_items": 0,
     }
-    pdf_bytes, pages = _build_pdf(resume_data, emergency_profile)
+    pdf_bytes, pages = _build_pdf(resume_data, emergency_profile, include_tagline=include_tagline)
     logging.warning("PDF generated with %s profile: %s page(s).", emergency_profile["name"], pages)
     if pages <= MAX_PAGES:
         return pdf_bytes
@@ -1024,7 +1026,7 @@ def create_resume_pdf(resume_data: Resume) -> bytes:
     contact_only_resume.projects = []
     contact_only_resume.certifications = []
     contact_only_resume.languages = []
-    pdf_bytes, pages = _build_pdf(contact_only_resume, emergency_profile)
+    pdf_bytes, pages = _build_pdf(contact_only_resume, emergency_profile, include_tagline=include_tagline)
     logging.error(
         "Resume content exceeded %s pages even after emergency trimming; returned contact-only fallback with %s page(s).",
         MAX_PAGES,

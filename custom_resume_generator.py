@@ -107,82 +107,8 @@ def _clean_headline_role(job_title: str) -> str:
 
 
 def build_professional_title(job_details: Dict[str, Any], resume_data: Resume | None = None) -> str:
-    """Build a concise JD-aligned header line without inventing experience."""
-    role = _clean_headline_role(str(job_details.get("job_title") or ""))
-    job_haystack = " ".join(
-        str(value or "")
-        for value in [
-            job_details.get("job_title"),
-            job_details.get("level"),
-            job_details.get("description"),
-        ]
-    ).lower()
-
-    # A headline may emphasize a JD keyword only when the resume contains
-    # delivery evidence for it. Certifications and the skills list alone are
-    # intentionally excluded so the headline never overstates experience.
-    evidence_haystack = ""
-    skill_keys: set[str] = set()
-    if resume_data:
-        evidence_parts = []
-        for exp in resume_data.experience or []:
-            evidence_parts.extend([exp.job_title, exp.description])
-        for project in resume_data.projects or []:
-            evidence_parts.extend([project.name, project.description, " ".join(project.technologies or [])])
-        evidence_haystack = " ".join(str(value or "") for value in evidence_parts).lower()
-        skill_keys = {_normalized_skill_key(skill) for skill in (resume_data.skills or [])}
-
-    cloud_skill_families = {
-        "AWS": {"aws", "eks", "ec2", "s3", "rds", "awslambda", "cloudwatch"},
-        "GCP": {"gcp", "gke"},
-        "Azure": {"azure", "azuredevops", "armtemplates", "aks"},
-    }
-
-    if re.search(r"\bsenior\b", job_haystack) and not re.search(r"\bsenior\b", role, re.IGNORECASE):
-        role = f"Senior {role}"
-
-    theme_candidates = [
-        (("aws", "amazon web services", "eks"), "AWS"),
-        (("gcp", "google cloud", "gke"), "GCP"),
-        (("azure", "aks"), "Azure"),
-        (("kubernetes", "gke", "eks", "aks", "containers"), "Kubernetes"),
-        (("terraform", "iac", "infrastructure as code"), "Terraform & IaC"),
-        (("ci/cd", "cicd", "jenkins", "github actions", "gitlab ci"), "CI/CD Automation"),
-        (("sre", "site reliability", "reliability"), "Reliability Engineering"),
-        (("observability", "prometheus", "grafana", "monitoring"), "Observability"),
-        (("devsecops", "dev sec ops", "dev secops", "dev-sec-ops", "security", "vulnerability"), "DevSecOps"),
-        (("docker", "container"), "Container Platforms"),
-        (("platform",), "Platform Engineering"),
-        (("automation", "ansible", "python"), "Infrastructure Automation"),
-    ]
-
-    themes: list[str] = []
-    for keywords, label in theme_candidates:
-        requested = any(keyword in job_haystack for keyword in keywords)
-        supported = any(keyword in evidence_haystack for keyword in keywords)
-        family_skills = cloud_skill_families.get(label, set())
-        if family_skills and len(skill_keys & family_skills) >= 2:
-            supported = True
-        if requested and supported and label not in themes:
-            themes.append(label)
-        if len(themes) >= 2:
-            break
-
-    if len(themes) < 2:
-        for keywords, fallback in theme_candidates:
-            if any(keyword in evidence_haystack for keyword in keywords) and fallback not in themes:
-                themes.append(fallback)
-            if len(themes) >= 2:
-                break
-
-    if len(themes) < 2:
-        for fallback in ["Kubernetes", "CI/CD Automation"]:
-            if fallback not in themes:
-                themes.append(fallback)
-            if len(themes) >= 2:
-                break
-
-    return " | ".join([role, *themes[:2]])
+    """Captions are disabled for generated custom resumes."""
+    return ""
 
 
 # --- LLM Personalization Function ---
@@ -246,7 +172,9 @@ def _normalized_skill_key(skill: str) -> str:
 ADDITIONAL_AI_PROFILE_SKILLS = (
     "Generative AI",
     "Large Language Models (LLMs)",
+    "AI-assisted Development Tools",
     "AI Agents",
+    "AI Copilots",
     "Workflow Automation",
     "Model Context Protocol (MCP)",
     "REST APIs",
@@ -363,7 +291,12 @@ def merge_verified_skills(
             continue
         ai_relevant.append(label)
 
-    return (family_relevant + relevant + ai_relevant + remaining)[:limit]
+    prioritized_ai = [
+        verified[_normalized_skill_key(skill)]
+        for skill in ADDITIONAL_AI_PROFILE_SKILLS
+        if _normalized_skill_key(skill) in verified
+    ]
+    return list(dict.fromkeys(family_relevant + relevant + prioritized_ai + ai_relevant + remaining))[:limit]
 
 
 def build_evidence_based_summary(
@@ -857,7 +790,7 @@ async def process_job(job_details: Dict[str, Any], base_resume_details: Resume):
         # 2. Generate PDF
         logging.info(f"Generating PDF for job_id: {job_id}")
         try:
-            pdf_bytes = pdf_generator.create_resume_pdf(personalized_resume_data)
+            pdf_bytes = pdf_generator.create_resume_pdf(personalized_resume_data, include_tagline=False)
             if not pdf_bytes:
                  raise ValueError("PDF generation returned empty bytes.")
             logging.info(f"PDF generation complete for job_id: {job_id}")

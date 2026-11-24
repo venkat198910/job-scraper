@@ -230,7 +230,7 @@ def regenerate_existing_custom_resume_pdfs(
                 else build_evidence_based_summary(resume_data, job_metadata)
             )
             resume_data.professional_title = build_professional_title(job_metadata, resume_data)
-            pdf_bytes = pdf_generator.create_resume_pdf(resume_data)
+            pdf_bytes = pdf_generator.create_resume_pdf(resume_data, include_tagline=False)
             destination_path = _new_resume_path(record, job_metadata)
 
             if dry_run:
