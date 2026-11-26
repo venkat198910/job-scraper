@@ -918,11 +918,38 @@ def _catalog_company_career_targets() -> list[dict]:
                 "career_url": career_url,
                 "list_url": career_url,
                 "job_link_pattern": CATALOG_COMPANY_CAREER_JOB_LINK_PATTERN,
-                "max_detail_pages": 1,
+                # Career-page catalogs often have many matching openings; only
+                # inspecting the first link hid postings at product companies.
+                "max_detail_pages": 20,
             }
         )
     return targets
 
+
+# Product-company ATS feeds with a dedicated adapter. Sony's global portal
+# links European roles to this Workday tenant; Schneider Electric uses Jibe's
+# public jobs API.
+COMPANY_CAREER_TARGETS.extend(
+    [
+        {
+            "name": "Sony Europe",
+            "career_url": "https://sonyglobal.wd1.myworkdayjobs.com/en-US/Sony_Europe_Careers",
+            "ats": "workday",
+            "host": "sonyglobal.wd1.myworkdayjobs.com",
+            "tenant": "sonyglobal",
+            "site": "Sony_Europe_Careers",
+            "search_terms": ["DevOps", "SRE", "Cloud", "Kubernetes", "Terraform", "Platform"],
+        },
+        {
+            "name": "Schneider Electric",
+            "career_url": "https://careers.se.com/EarlyCareerTalent/jobs",
+            "ats": "jibe_api",
+            "base_url": "https://careers.se.com",
+            "search_terms": ["DevOps", "Site Reliability", "Cloud", "Kubernetes", "Terraform", "Platform"],
+            "limit": 50,
+        },
+    ]
+)
 
 COMPANY_CAREER_TARGETS.extend(
     {

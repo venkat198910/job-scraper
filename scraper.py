@@ -130,6 +130,12 @@ def _established_company_names() -> set[str]:
         return _ESTABLISHED_COMPANY_NAME_CACHE
 
     names = set(getattr(config, "COMPANY_CAREER_PAGE_URLS", {}).keys())
+    # LinkedIn coverage must not depend on whether a company's own career
+    # site has a resolved ATS/feed. The broader product-company catalog also
+    # contains employers whose official job sites are not machine-readable.
+    names.update(
+        getattr(config, "NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS", {}).keys()
+    )
     names.update(
         str(target.get("name") or "")
         for target in getattr(config, "COMPANY_CAREER_TARGETS", [])
@@ -2655,14 +2661,51 @@ def _fetch_jibe_api_jobs(target: dict) -> list[dict]:
     if not base_url:
         return []
 
+    # Current Jibe career sites commonly require a session cookie and the
+    # public api-key embedded in their search page before /api/jobs responds.
+    session = requests.Session()
+    user_agent = _random_user_agent()
+    landing_url = target.get("career_url") or base_url
+    api_key = ""
+    try:
+        landing_response = session.get(
+            landing_url,
+            timeout=app_settings.get_advanced_int("requestTimeout"),
+            headers={"User-Agent": user_agent, "Accept-Language": "en-US,en;q=0.9"},
+        )
+        landing_response.raise_for_status()
+        landing_soup = BeautifulSoup(landing_response.text, "html.parser")
+        api_key_element = landing_soup.select_one("[api-key]")
+        if api_key_element:
+            api_key = str(api_key_element.get("api-key") or "")
+    except requests.exceptions.RequestException as exc:
+        logging.warning("Jibe career page request failed for %s: %s", landing_url, exc)
+
     jobs = []
     seen_ids = set()
     search_terms = target.get("search_terms") or getattr(config, "COMPANY_CAREER_ROLE_KEYWORDS", [])
     per_term_limit = int(target.get("limit") or getattr(config, "COMPANY_CAREER_JOBS_PER_TERM", 10) or 10)
     for search_text in search_terms:
-        payload = _fetch_json(
-            f"{base_url}/api/jobs?{urlencode({'keywords': str(search_text), 'page': 1, 'limit': per_term_limit})}"
-        )
+        try:
+            response = session.get(
+                f"{base_url}/api/jobs",
+                params={"keywords": str(search_text), "page": 1, "limit": per_term_limit},
+                timeout=app_settings.get_advanced_int("requestTimeout"),
+                headers={
+                    "User-Agent": user_agent,
+                    "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+                    "Referer": landing_url,
+                    **({"api-key": api_key} if api_key else {}),
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.exceptions.RequestException as exc:
+            logging.warning("Jibe API request failed for %s (%s): %s", target.get("name"), search_text, exc)
+            continue
+        except json.JSONDecodeError as exc:
+            logging.warning("Jibe API returned invalid JSON for %s (%s): %s", target.get("name"), search_text, exc)
+            continue
         if not isinstance(payload, dict):
             continue
         for job in payload.get("jobs", []):

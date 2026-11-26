@@ -558,3 +558,29 @@ NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS.update({
     "LVMH": "https://www.lvmh.com/join-us/our-job-offers",
     "Sony Interactive Entertainment": "https://careers.playstation.com/",
 })
+
+# Direct official career pages for additional global product and engineering
+# employers. Search-engine placeholders are intentionally not used as feeds.
+NON_STARTUP_PRODUCT_COMPANY_CAREER_PAGE_URLS.update({
+    "Sony Group": "https://www.sony.com/en/SonyInfo/Careers/",
+    "Samsung Electronics": "https://www.samsungcareers.com/global",
+    "Nintendo": "https://careers.nintendo.com/",
+    "LG Electronics": "https://careers.lg.com/",
+    "Mitsubishi Electric": "https://www.mitsubishielectric.com/en/careers/",
+    "Toyota Motor Corporation": "https://careers.toyota.com/",
+    "Kia Corporation": "https://career.kia.com/",
+    "ABB Ltd.": "https://careers.abb/global/en",
+    "Infineon Technologies": "https://www.infineon.com/careers",
+    "ASM International": "https://www.asm.com/careers",
+    "Tokyo Electron": "https://www.tel.com/careers/",
+    "Advantest": "https://www.advantest.com/en/about/career-na/",
+    "MediaTek": "https://www.mediatek.com/careers",
+    "Alibaba Group Holding": "https://talent.alibaba.com/",
+    "Shopify": "https://www.shopify.com/careers",
+    "Spotify": "https://www.lifeatspotify.com/jobs",
+    "Rakuten Group": "https://corp.rakuten.co.jp/careers/",
+    "Naver": "https://recruit.navercorp.com/",
+    "Kakao": "https://careers.kakao.com/",
+    "ASML Holding": "https://www.asml.com/en/careers",
+    "Applied Materials": "https://careers.appliedmaterials.com/careers",
+})
